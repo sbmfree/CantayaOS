@@ -249,7 +249,8 @@ pub fn probe_and_init() {
     for (base, dev_id, irq) in devices {
         if dev_id == VIRTIO_DEV_NET {
             if init(base) {
-                // Enable this device's SPI in the GIC
+                // Enable this device's SPI in the GIC (ARM64 only)
+                #[cfg(target_arch = "aarch64")]
                 crate::hal::interrupts::configure_spi(irq, 0xA0);
             }
         }

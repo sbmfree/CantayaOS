@@ -59,7 +59,8 @@ impl Gic {
     }
 }
 
-/// Initialize GIC
+/// Initialize interrupt controller
+#[cfg(target_arch = "aarch64")]
 pub fn init() {
     let gic = GIC.lock();
     
@@ -133,8 +134,17 @@ pub fn init() {
     enable_irq(33);
 }
 
+#[cfg(target_arch = "x86_64")]
+pub fn init() {
+    // x86_64 interrupt controller initialization
+    // TODO: Implement PIC/APIC setup
+    crate::kprintln!("[INT] x86_64 interrupt controller init (stub)");
+}
+
 /// Configure and enable an SPI interrupt with the given priority.
 /// Handles Group1 NS assignment, priority register, and enable.
+#[cfg(target_arch = "aarch64")]
+#[cfg(target_arch = "aarch64")]
 pub fn configure_spi(intid: u32, priority: u8) {
     let gic = GIC.lock();
     unsafe {
@@ -203,6 +213,7 @@ pub fn disable_irq(irq: u32) {
 }
 
 /// Handle IRQ (called from exception handler)
+#[cfg(target_arch = "aarch64")]
 pub fn handle_irq() {
     let iar: u64;
     unsafe {
@@ -226,7 +237,22 @@ pub fn handle_irq() {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
+pub fn handle_irq() {
+    // x86_64 interrupt handling - read from PIC/APIC
+    // For now, just handle timer and acknowledge
+    // TODO: Implement proper x86_64 interrupt controller support
+    crate::hal::timer::handle_timer_irq();
+    
+    // Send EOI to PIC (if using legacy PIC)
+    unsafe {
+        // Master PIC
+        core::arch::asm!("out 0x20, al", in("al") 0x20u8);
+    }
+}
+
 /// Handle IRQ with context for preemption
+#[cfg(target_arch = "aarch64")]
 pub fn handle_irq_preemptive(ctx: &mut crate::arch::exceptions::ExceptionContext) {
     let iar: u64;
     unsafe {
@@ -247,5 +273,17 @@ pub fn handle_irq_preemptive(ctx: &mut crate::arch::exceptions::ExceptionContext
     // End of interrupt
     unsafe {
         core::arch::asm!("msr ICC_EOIR1_EL1, {}", in(reg) iar);
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+pub fn handle_irq_preemptive(ctx: &mut crate::arch::exceptions::ExceptionContext) {
+    // x86_64 interrupt handling with preemption
+    // For now, just handle timer with preemption
+    crate::hal::timer::handle_timer_irq_preemptive(ctx);
+    
+    // Send EOI to PIC
+    unsafe {
+        core::arch::asm!("out 0x20, al", in("al") 0x20u8);
     }
 }

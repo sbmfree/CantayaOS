@@ -99,16 +99,15 @@ fn enable_features() {
         
         if (edx & (1 << 20)) != 0 {
             // NX is supported, enable it in IA32_EFER
-            let mut efer: u64;
             asm!(
                 "mov ecx, 0xC0000080",  // IA32_EFER MSR
                 "rdmsr",
-                "or eax, {nxe}",
+                "or eax, {nxe:e}",       // Use :e to specify 32-bit
                 "wrmsr",
                 nxe = in(reg) 1u32 << 11,
                 out("eax") _,
                 out("edx") _,
-                lateout("ecx") efer,
+                out("ecx") _,
             );
         }
         

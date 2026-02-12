@@ -63,7 +63,10 @@ unsafe fn dma_read(sel: u16, buf_phys: usize, len: usize) {
     let desc_phys = base as usize;
 
     // DMB ST: ensure descriptor stores are visible before the MMIO write
+    #[cfg(target_arch = "aarch64")]
     core::arch::asm!("dmb st", options(nostack, preserves_flags));
+    #[cfg(target_arch = "x86_64")]
+    core::arch::asm!("mfence", options(nostack, preserves_flags));
 
     let hi = ((desc_phys as u64) >> 32) as u32;
     let lo = desc_phys as u32;
@@ -95,7 +98,10 @@ unsafe fn dma_read_continue(buf_phys: usize, len: usize) {
 
     let desc_phys = base as usize;
 
+    #[cfg(target_arch = "aarch64")]
     core::arch::asm!("dmb st", options(nostack, preserves_flags));
+    #[cfg(target_arch = "x86_64")]
+    core::arch::asm!("mfence", options(nostack, preserves_flags));
 
     let hi = ((desc_phys as u64) >> 32) as u32;
     let lo = desc_phys as u32;
@@ -127,7 +133,10 @@ unsafe fn dma_skip(len: usize) {
 
     let desc_phys = base as usize;
 
+    #[cfg(target_arch = "aarch64")]
     core::arch::asm!("dmb st", options(nostack, preserves_flags));
+    #[cfg(target_arch = "x86_64")]
+    core::arch::asm!("mfence", options(nostack, preserves_flags));
 
     let hi = ((desc_phys as u64) >> 32) as u32;
     let lo = desc_phys as u32;
@@ -209,7 +218,10 @@ unsafe fn dma_write(sel: u16, buf_phys: usize, len: usize) {
     let desc_phys = base as usize;
 
     // DMB ST: ensure descriptor + data stores are visible before MMIO write
+    #[cfg(target_arch = "aarch64")]
     core::arch::asm!("dmb st", options(nostack, preserves_flags));
+    #[cfg(target_arch = "x86_64")]
+    core::arch::asm!("mfence", options(nostack, preserves_flags));
 
     let hi = ((desc_phys as u64) >> 32) as u32;
     let lo = desc_phys as u32;

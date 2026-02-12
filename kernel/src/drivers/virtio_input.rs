@@ -110,7 +110,8 @@ pub fn init() {
         if let Some(dev) = init_one_device(*base) {
             crate::kprintln!("  virtio-input: {} at {:#X}",
                 if dev.is_tablet { "tablet" } else { "keyboard" }, dev.base);
-            // Enable this device's SPI in the GIC so interrupts are delivered
+            // Enable this device's SPI in the GIC so interrupts are delivered (ARM64 only)
+            #[cfg(target_arch = "aarch64")]
             crate::hal::interrupts::configure_spi(*irq, 0xA0);
             DEVICES.lock().push(dev);
         }
