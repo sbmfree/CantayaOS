@@ -1,11 +1,12 @@
 //! System Call Interface
 //!
 //! Windows NT-like syscall interface.
-//! System calls use SVC with arguments in x0-x5, syscall number in x8,
-//! and return value in x0.
+//! System calls use architecture-specific conventions:
+//! - AArch64: SVC with arguments in x0-x5, syscall number in x8, return value in x0.
+//! - x86_64: INT 0x80 with syscall number in rax, arguments in rdi, rsi, rdx, r10, return value in rax.
 
 use super::{Pid, Tid};
-use crate::arch::aarch64::exceptions::ExceptionContext;
+use crate::arch::exceptions::ExceptionContext;
 
 /// Maximum user-space buffer size we'll accept (1MB)
 const MAX_USER_BUF: usize = 1024 * 1024;
@@ -118,21 +119,36 @@ pub fn handle_syscall() {
 
 /// Handle syscall with full exception context
 pub fn handle_syscall_ctx(ctx: &mut ExceptionContext) {
-    let syscall_num = ctx.regs[8];  // x8 = syscall number
-    let a0 = ctx.regs[0];           // x0
-    let a1 = ctx.regs[1];           // x1
-    let a2 = ctx.regs[2];           // x2
-    let _a3 = ctx.regs[3];          // x3
-    let _a4 = ctx.regs[4];          // x4
+    // Extract syscall number and arguments based on architecture
+    #[cfg(target_arch = "aarch64")]
+    let (syscall_num, a0, a1, a2, a3, a4) = {
+        // AArch64: x8 = syscall number, x0-x4 = arguments
+        (ctx.regs[8], ctx.regs[0], ctx.regs[1], ctx.regs[2], ctx.regs[3], ctx.regs[4])
+    };
+    
+    #[cfg(target_arch = "x86_64")]
+    let (syscall_num, a0, a1, a2, a3, a4) = {
+        // x86_64: rax = syscall number, rdi, rsi, rdx, r10 = arguments
+        (ctx.rax, ctx.rdi, ctx.rsi, ctx.rdx, ctx.r10, 0)
+    };
 
-    let result = dispatch_syscall(syscall_num, a0, a1, a2, _a3, _a4);
+    let result = dispatch_syscall(syscall_num, a0, a1, a2, a3, a4);
 
-    // Return result in x0
-    ctx.regs[0] = result;
-
-    // Note: On AArch64, ELR_EL1 for SVC already points to the instruction
-    // AFTER the SVC (preferred return address = SVC + 4), so we do NOT
-    // advance ctx.pc here.
+    // Return result based on architecture
+    #[cfg(target_arch = "aarch64")]
+    {
+        ctx.regs[0] = result;  // x0
+        // Note: On AArch64, ELR_EL1 for SVC already points to the instruction
+        // AFTER the SVC (preferred return address = SVC + 4), so we do NOT
+        // advance ctx.pc here.
+    }
+    
+    #[cfg(target_arch = "x86_64")]
+    {
+        ctx.rax = result;  // rax
+        // Note: On x86_64, RIP for INT already points to the instruction
+        // AFTER the INT, so we do NOT advance ctx.rip here.
+    }
 }
 
 fn dispatch_syscall(num: u64, a0: u64, a1: u64, a2: u64, a3: u64, _a4: u64) -> u64 {

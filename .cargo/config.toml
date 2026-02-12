@@ -9,3 +9,6 @@ json-target-spec = true
 
 [target.aarch64-cantaya]
 rustflags = ["-C", "link-arg=-T", "-C", "link-arg=kernel/linker.ld"]
+
+[target.x86_64-cantaya]
+rustflags = ["-C", "link-arg=-T", "-C", "link-arg=kernel/linker-x86_64.ld"]

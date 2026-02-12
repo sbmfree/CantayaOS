@@ -13,14 +13,22 @@ use core::fmt::{self, Write};
 // -------------------------------------------------------------------------
 
 /// Perform a raw system call.
-/// Convention: syscall number in x8, arguments in x0-x4, return in x0.
+/// Convention for AArch64: syscall number in x8, arguments in x0-x4, return in x0.
+/// Convention for x86_64: syscall number in rax, arguments in rdi, rsi, rdx, r10, r8, r9, return in rax.
 #[inline(always)]
 pub unsafe fn syscall0(num: u64) -> u64 {
     let ret: u64;
+    #[cfg(target_arch = "aarch64")]
     asm!(
         "svc #0",
         in("x8") num,
         lateout("x0") ret,
+        options(nostack)
+    );
+    #[cfg(target_arch = "x86_64")]
+    asm!(
+        "int 0x80",
+        inlateout("rax") num => ret,
         options(nostack)
     );
     ret
@@ -29,10 +37,18 @@ pub unsafe fn syscall0(num: u64) -> u64 {
 #[inline(always)]
 pub unsafe fn syscall1(num: u64, a0: u64) -> u64 {
     let ret: u64;
+    #[cfg(target_arch = "aarch64")]
     asm!(
         "svc #0",
         in("x8") num,
         inlateout("x0") a0 => ret,
+        options(nostack)
+    );
+    #[cfg(target_arch = "x86_64")]
+    asm!(
+        "int 0x80",
+        inlateout("rax") num => ret,
+        in("rdi") a0,
         options(nostack)
     );
     ret
@@ -41,11 +57,20 @@ pub unsafe fn syscall1(num: u64, a0: u64) -> u64 {
 #[inline(always)]
 pub unsafe fn syscall2(num: u64, a0: u64, a1: u64) -> u64 {
     let ret: u64;
+    #[cfg(target_arch = "aarch64")]
     asm!(
         "svc #0",
         in("x8") num,
         inlateout("x0") a0 => ret,
         in("x1") a1,
+        options(nostack)
+    );
+    #[cfg(target_arch = "x86_64")]
+    asm!(
+        "int 0x80",
+        inlateout("rax") num => ret,
+        in("rdi") a0,
+        in("rsi") a1,
         options(nostack)
     );
     ret
@@ -54,6 +79,7 @@ pub unsafe fn syscall2(num: u64, a0: u64, a1: u64) -> u64 {
 #[inline(always)]
 pub unsafe fn syscall3(num: u64, a0: u64, a1: u64, a2: u64) -> u64 {
     let ret: u64;
+    #[cfg(target_arch = "aarch64")]
     asm!(
         "svc #0",
         in("x8") num,
@@ -62,12 +88,22 @@ pub unsafe fn syscall3(num: u64, a0: u64, a1: u64, a2: u64) -> u64 {
         in("x2") a2,
         options(nostack)
     );
+    #[cfg(target_arch = "x86_64")]
+    asm!(
+        "int 0x80",
+        inlateout("rax") num => ret,
+        in("rdi") a0,
+        in("rsi") a1,
+        in("rdx") a2,
+        options(nostack)
+    );
     ret
 }
 
 #[inline(always)]
 pub unsafe fn syscall4(num: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let ret: u64;
+    #[cfg(target_arch = "aarch64")]
     asm!(
         "svc #0",
         in("x8") num,
@@ -75,6 +111,16 @@ pub unsafe fn syscall4(num: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         in("x1") a1,
         in("x2") a2,
         in("x3") a3,
+        options(nostack)
+    );
+    #[cfg(target_arch = "x86_64")]
+    asm!(
+        "int 0x80",
+        inlateout("rax") num => ret,
+        in("rdi") a0,
+        in("rsi") a1,
+        in("rdx") a2,
+        in("r10") a3,
         options(nostack)
     );
     ret

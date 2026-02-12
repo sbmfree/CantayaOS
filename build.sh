@@ -65,10 +65,10 @@ echo ""
 echo "Building kernel..."
 
 if [ "$MODE" == "release" ]; then
-    cargo build --release 2>&1
+    cargo build --release --target "kernel/$TARGET.json" 2>&1
     KERNEL_ELF="target/$TARGET/release/cantaya_kernel"
 else
-    cargo build 2>&1
+    cargo build --target "kernel/$TARGET.json" 2>&1
     KERNEL_ELF="target/$TARGET/debug/cantaya_kernel"
 fi
 
