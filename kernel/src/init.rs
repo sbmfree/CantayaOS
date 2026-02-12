@@ -127,6 +127,11 @@ pub fn launch() {
         let vaddr = INIT_CODE_BASE + i * PAGE_SIZE;
         virtual_mem::map_page_in(pgd, vaddr, frame, code_flags);
     }
+    
+    // Verify mapping
+    if virtual_mem::virt_to_phys_in(pgd, INIT_CODE_BASE).is_none() {
+        crate::kprintln!("[init] ERROR: {:#x} NOT MAPPED!", INIT_CODE_BASE);
+    }
 
     // 3. Allocate user stack pages and map into process PGD
     let stack_pages = INIT_STACK_SIZE / PAGE_SIZE;

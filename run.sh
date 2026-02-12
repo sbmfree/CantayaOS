@@ -17,7 +17,7 @@ echo "  CPU:    cortex-a72"
 MODE="${3:-window}"
 
 if [ "$MODE" = "window" ]; then
-    echo "  Display: QEMU window (serial console)"
+    echo "  Display: QEMU window (graphical + serial)"
     echo "  Close the window to exit QEMU"
     echo ""
     qemu-system-aarch64 \
@@ -25,6 +25,9 @@ if [ "$MODE" = "window" ]; then
         -cpu cortex-a72 \
         -m "$RAM" \
         -kernel "$KERNEL" \
+        -device ramfb \
+        -device virtio-keyboard-device \
+        -device virtio-tablet-device \
         -serial vc \
         -d guest_errors
 else
@@ -34,8 +37,10 @@ else
         -M virt,gic-version=3 \
         -cpu cortex-a72 \
         -m "$RAM" \
-        -nographic \
         -kernel "$KERNEL" \
+        -device ramfb \
+        -device virtio-keyboard-device \
+        -device virtio-tablet-device \
         -serial mon:stdio \
         -d guest_errors
 fi

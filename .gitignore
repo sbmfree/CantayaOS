@@ -1,0 +1,9 @@
+# Build artifacts
+/target/
+cantaya.bin
+
+# Editor
+.vscode/
+*.swp
+*.swo
+*~

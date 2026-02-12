@@ -25,6 +25,7 @@ pub mod drivers;
 pub mod fs;
 pub mod shell;
 pub mod init;
+pub mod gui;
 
 use core::panic::PanicInfo;
 
@@ -105,6 +106,18 @@ pub extern "C" fn kernel_main() -> ! {
     drivers::init();
     boot_ok(GREEN, "DRV ", "PCI enumeration, virtual NIC (eth0: 10.0.2.15) ready");
 
+    // ---- Phase 7b: Framebuffer + input devices ----
+    boot_status(YELLOW, "GPU ", "Initializing framebuffer (ramfb 800x600)...");
+    let fb_ok = drivers::framebuffer::init();
+    if fb_ok {
+        boot_ok(GREEN, "GPU ", "ramfb framebuffer ready (800x600 XRGB8888)");
+    } else {
+        boot_status(_RED, "GPU ", "framebuffer init failed — running headless");
+    }
+    boot_status(YELLOW, "INP ", "Probing virtio-input devices...");
+    drivers::virtio_input::init();
+    boot_ok(GREEN, "INP ", "virtio-input keyboard + tablet ready");
+
     // ---- Phase 8: Service Manager ----
     boot_status(YELLOW, "SVC ", "Starting system services...");
     hal::services::init();
@@ -168,6 +181,9 @@ pub extern "C" fn kernel_main() -> ! {
     
     // Launch the user-space init process
     init::launch();
+
+    // Launch the GUI compositor (if framebuffer is available)
+    gui::init();
     
     // Launch the interactive shell
     shell::run();

@@ -9,7 +9,8 @@ use core::ptr::null_mut;
 use spin::Mutex;
 
 /// Heap start address — MUST be past the kernel BSS section end.
-const HEAP_START: usize = 0x4010_0000;
+/// Kernel is at 0x4008_0000, binary is ~1MB, so start heap at 2MB offset.
+const HEAP_START: usize = 0x4020_0000;
 const HEAP_SIZE: usize = 4 * 1024 * 1024; // 4MB kernel heap
 
 /// Allocation header stored before every returned pointer

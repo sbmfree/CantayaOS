@@ -133,8 +133,10 @@ pub fn init() {
     alloc.total_pages = ram_size / PAGE_SIZE;
     alloc.free_pages = alloc.total_pages;
     
-    // Mark kernel + heap region as used (first 6MB covers kernel text/data/bss + heap)
-    // Kernel: 0x4000_0000..0x400F_0000, Heap: 0x4010_0000..0x4050_0000
+    // Mark kernel + heap region as used
+    // Kernel: 0x4008_0000..~0x401A_0000 (up to 2MB for safety)
+    // Heap:   0x4020_0000..0x4060_0000 (4MB)
+    // Total reserved: 6MB from RAM_BASE
     let reserved_pages = (6 * 1024 * 1024) / PAGE_SIZE;
     for page in 0..reserved_pages {
         alloc.mark_used(page);

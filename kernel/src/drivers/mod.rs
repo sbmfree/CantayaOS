@@ -5,6 +5,10 @@
 pub mod device;
 pub mod pci;
 pub mod net;
+pub mod fwcfg;
+pub mod framebuffer;
+pub mod virtio_mmio;
+pub mod virtio_input;
 
 use alloc::vec::Vec;
 use spin::Mutex;

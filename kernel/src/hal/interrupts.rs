@@ -21,6 +21,7 @@ const GICR_IPRIORITYR: usize = 0x0400;  // Priority for SGIs/PPIs
 const GICD_CTLR: usize = 0x0000;
 #[allow(dead_code)]
 const GICD_TYPER: usize = 0x0004;
+const GICD_IGROUPR: usize = 0x0080;
 const GICD_ISENABLER: usize = 0x0100;
 const GICD_ICENABLER: usize = 0x0180;
 #[allow(dead_code)]
@@ -119,11 +120,43 @@ pub fn init() {
         let mut tgt_val = gic.read_gicd(tgt_reg);
         tgt_val |= 0x01 << tgt_shift;
         gic.write_gicd(tgt_reg, tgt_val);
+
+        // Set UART SPI to Group 1 NS (GICD_IGROUPR)
+        let grp_reg = GICD_IGROUPR + (33 / 32) * 4;
+        let grp_bit = 33 % 32;
+        let grp_val = gic.read_gicd(grp_reg);
+        gic.write_gicd(grp_reg, grp_val | (1 << grp_bit));
     }
     
     // Enable UART0 IRQ
     drop(gic);
     enable_irq(33);
+}
+
+/// Configure and enable an SPI interrupt with the given priority.
+/// Handles Group1 NS assignment, priority register, and enable.
+pub fn configure_spi(intid: u32, priority: u8) {
+    let gic = GIC.lock();
+    unsafe {
+        // Set this SPI to Group 1 NS so it is delivered as IRQ, not FIQ
+        let grp_reg = GICD_IGROUPR + (intid as usize / 32) * 4;
+        let grp_bit = intid % 32;
+        let grp_val = gic.read_gicd(grp_reg);
+        gic.write_gicd(grp_reg, grp_val | (1 << grp_bit));
+
+        // Set priority
+        let pri_reg = GICD_IPRIORITYR + (intid as usize / 4) * 4;
+        let pri_shift = ((intid % 4) * 8) as u32;
+        let mut pri_val = gic.read_gicd(pri_reg);
+        pri_val &= !(0xFF << pri_shift);
+        pri_val |= (priority as u32) << pri_shift;
+        gic.write_gicd(pri_reg, pri_val);
+
+        // IROUTER defaults to 0 (CPU 0) in GICv3 with ARE, which is correct.
+        // ITARGETSR is RES0 in GICv3 ARE mode, so skip it.
+    }
+    drop(gic);
+    enable_irq(intid);
 }
 
 /// Enable specific interrupt
@@ -182,6 +215,7 @@ pub fn handle_irq() {
     match irq {
         30 => crate::hal::timer::handle_timer_irq(),
         33 => crate::hal::console::handle_uart_irq(), // UART0 SPI #1 = IRQ 33
+        48..=79 => crate::drivers::virtio_mmio::handle_irq((irq - 48) as usize),
         1023 => { /* Spurious interrupt, ignore */ }
         _ => crate::kprintln!("Unhandled IRQ: {}", irq),
     }
@@ -205,6 +239,7 @@ pub fn handle_irq_preemptive(ctx: &mut crate::arch::aarch64::exceptions::Excepti
     match irq {
         30 => crate::hal::timer::handle_timer_irq_preemptive(ctx),
         33 => crate::hal::console::handle_uart_irq(), // UART0 SPI #1 = IRQ 33
+        48..=79 => crate::drivers::virtio_mmio::handle_irq((irq - 48) as usize),
         1023 => { /* Spurious interrupt, ignore */ }
         _ => crate::kprintln!("Unhandled IRQ: {}", irq),
     }

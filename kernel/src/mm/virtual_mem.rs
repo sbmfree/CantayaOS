@@ -223,6 +223,8 @@ fn setup_kernel_mappings() {
     //   0x0800_0000..0800_3FFF: 4 pages (GIC Distributor — GICD)
     //   0x080A_0000..080B_FFFF: 32 pages (GIC Redistributor — GICR, RD+SGI 128KB)
     //   0x0900_0000..0900_3FFF: 4 pages (PL011 UART)
+    //   0x0902_0000..0902_0FFF: 1 page  (fw-cfg MMIO)
+    //   0x0A00_0000..0A00_3FFF: 16 pages (virtio-mmio transports, 32 slots × 0x200)
     let mut addr: usize = 0;
     while addr < device_region_end {
         map_page_internal(
@@ -243,6 +245,12 @@ fn setup_kernel_mappings() {
             // Jump to UART
             addr = 0x0900_0000;
         } else if addr == 0x0900_0000 + PAGE_SIZE * 4 {
+            // Jump to fw-cfg
+            addr = 0x0902_0000;
+        } else if addr == 0x0902_0000 + PAGE_SIZE {
+            // Jump to virtio-mmio transports
+            addr = 0x0A00_0000;
+        } else if addr == 0x0A00_0000 + PAGE_SIZE * 16 {
             // Jump to RAM start (end of device region)
             addr = 0x4000_0000;
         }
