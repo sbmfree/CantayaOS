@@ -1,5 +1,5 @@
-   0.045728040s  INFO prepare_target{force=false package_id=cantaya_bootloader v0.1.0 (/home/opwckpl/CantayaOS/bootloader) target="cantaya_bootloader"}: cargo::core::compiler::fingerprint: fingerprint error for cantaya_bootloader v0.1.0 (/home/opwckpl/CantayaOS/bootloader)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("cantaya_bootloader", ["staticlib"], "/home/opwckpl/CantayaOS/bootloader/src/lib.rs", Edition2021) }
-   0.045746664s  INFO prepare_target{force=false package_id=cantaya_bootloader v0.1.0 (/home/opwckpl/CantayaOS/bootloader) target="cantaya_bootloader"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/opwckpl/CantayaOS/target/aarch64-cantaya/debug/.fingerprint/cantaya_bootloader-09f0bc31e9bfcb4a/test-lib-cantaya_bootloader`
+   0.104809912s  INFO prepare_target{force=false package_id=cantaya_bootloader v0.1.0 (/home/opwckpl/CantayaOS/bootloader) target="cantaya_bootloader"}: cargo::core::compiler::fingerprint: fingerprint error for cantaya_bootloader v0.1.0 (/home/opwckpl/CantayaOS/bootloader)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("cantaya_bootloader", ["staticlib"], "/home/opwckpl/CantayaOS/bootloader/src/lib.rs", Edition2021) }
+   0.104844203s  INFO prepare_target{force=false package_id=cantaya_bootloader v0.1.0 (/home/opwckpl/CantayaOS/bootloader) target="cantaya_bootloader"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/opwckpl/CantayaOS/target/aarch64-cantaya/debug/.fingerprint/cantaya_bootloader-09f0bc31e9bfcb4a/test-lib-cantaya_bootloader`
 
 Caused by:
     No such file or directory (os error 2)
@@ -47,8 +47,8 @@ Stack backtrace:
   27: __libc_start_call_main
   28: __libc_start_main_alias_1
   29: <unknown>
-   0.056019957s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint: fingerprint error for cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("cantaya_kernel", ["staticlib", "rlib"], "/home/opwckpl/CantayaOS/kernel/src/lib.rs", Edition2021) }
-   0.056030623s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/opwckpl/CantayaOS/target/aarch64-cantaya/debug/.fingerprint/cantaya_kernel-34e5e80c598aa14b/test-lib-cantaya_kernel`
+   0.118242242s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint: fingerprint error for cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("cantaya_kernel", ["staticlib", "rlib"], "/home/opwckpl/CantayaOS/kernel/src/lib.rs", Edition2021) }
+   0.118264909s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/opwckpl/CantayaOS/target/aarch64-cantaya/debug/.fingerprint/cantaya_kernel-34e5e80c598aa14b/test-lib-cantaya_kernel`
 
 Caused by:
     No such file or directory (os error 2)
@@ -96,8 +96,16 @@ Stack backtrace:
   27: __libc_start_call_main
   28: __libc_start_main_alias_1
   29: <unknown>
-   0.056601191s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint: fingerprint error for cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel)/Check { test: true }/TargetInner { name: "cantaya_kernel", doc: true, ..: with_path("/home/opwckpl/CantayaOS/kernel/src/main.rs", Edition2021) }
-   0.056606982s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/opwckpl/CantayaOS/target/aarch64-cantaya/debug/.fingerprint/cantaya_kernel-c7ba2ebef09e2e7a/test-bin-cantaya_kernel`
+   0.119615879s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint: stale: changed "/home/opwckpl/CantayaOS/kernel/src/hal/interrupts.rs"
+   0.119627712s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint:           (vs) "/home/opwckpl/CantayaOS/target/aarch64-cantaya/debug/.fingerprint/cantaya_kernel-ef712a2f6ec10fd6/dep-lib-cantaya_kernel"
+   0.119632212s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1770890365, nanos: 235833566 } < FileTime { seconds: 1770890428, nanos: 812374719 }
+   0.119676586s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint: fingerprint dirty for cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("cantaya_kernel", ["staticlib", "rlib"], "/home/opwckpl/CantayaOS/kernel/src/lib.rs", Edition2021) }
+   0.119686877s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/home/opwckpl/CantayaOS/target/aarch64-cantaya/debug/.fingerprint/cantaya_kernel-ef712a2f6ec10fd6/dep-lib-cantaya_kernel", reference_mtime: FileTime { seconds: 1770890365, nanos: 235833566 }, stale: "/home/opwckpl/CantayaOS/kernel/src/hal/interrupts.rs", stale_mtime: FileTime { seconds: 1770890428, nanos: 812374719 } }))
+   0.120456819s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint: stale: changed "/home/opwckpl/CantayaOS/kernel/src/hal/interrupts.rs"
+   0.120464485s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint:           (vs) "/home/opwckpl/CantayaOS/target/aarch64-cantaya/debug/.fingerprint/cantaya_kernel-8e0f3fc54bf0c6dd/dep-lib-cantaya_kernel"
+   0.120468402s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1770890365, nanos: 235833566 } < FileTime { seconds: 1770890428, nanos: 812374719 }
+   0.120527192s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint: fingerprint error for cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel)/Check { test: true }/TargetInner { name: "cantaya_kernel", doc: true, ..: with_path("/home/opwckpl/CantayaOS/kernel/src/main.rs", Edition2021) }
+   0.120537775s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/opwckpl/CantayaOS/target/aarch64-cantaya/debug/.fingerprint/cantaya_kernel-c7ba2ebef09e2e7a/test-bin-cantaya_kernel`
 
 Caused by:
     No such file or directory (os error 2)
@@ -145,9 +153,13 @@ Stack backtrace:
   27: __libc_start_call_main
   28: __libc_start_main_alias_1
   29: <unknown>
+   0.121149137s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint: fingerprint dirty for cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("cantaya_kernel", ["staticlib", "rlib"], "/home/opwckpl/CantayaOS/kernel/src/lib.rs", Edition2021) }
+   0.121159928s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/home/opwckpl/CantayaOS/target/aarch64-cantaya/debug/.fingerprint/cantaya_kernel-8e0f3fc54bf0c6dd/dep-lib-cantaya_kernel", reference_mtime: FileTime { seconds: 1770890365, nanos: 235833566 }, stale: "/home/opwckpl/CantayaOS/kernel/src/hal/interrupts.rs", stale_mtime: FileTime { seconds: 1770890428, nanos: 812374719 } }))
+   0.121584002s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint: fingerprint dirty for cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel)/Check { test: false }/TargetInner { name: "cantaya_kernel", doc: true, ..: with_path("/home/opwckpl/CantayaOS/kernel/src/main.rs", Edition2021) }
+   0.121593586s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { unit: UnitIndex(7) })
     Checking cantaya_bootloader v0.1.0 (/home/opwckpl/CantayaOS/bootloader)
     Checking cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel)
-error: could not compile `cantaya_kernel` (bin "cantaya_kernel" test) due to 1 previous error
-warning: build failed, waiting for other jobs to finish...
 error: could not compile `cantaya_bootloader` (lib test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `cantaya_kernel` (bin "cantaya_kernel" test) due to 1 previous error
 error: could not compile `cantaya_kernel` (lib test) due to 1 previous error
