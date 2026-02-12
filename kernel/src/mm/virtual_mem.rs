@@ -286,16 +286,23 @@ fn map_page_internal(virt: usize, phys: usize, flags: PageFlags) {
     }
 }
 
-/// Load kernel page tables into TTBR0_EL1
+/// Load kernel page tables into page table register
 fn load_kernel_page_tables() {
     unsafe {
         let pgd_addr = &raw const KERNEL_PGD as u64;
+        #[cfg(target_arch = "aarch64")]
         core::arch::asm!(
             "msr ttbr0_el1, {pgd}",
             "isb",
             "tlbi vmalle1is",
             "dsb ish",
             "isb",
+            pgd = in(reg) pgd_addr,
+        );
+        
+        #[cfg(target_arch = "x86_64")]
+        core::arch::asm!(
+            "mov cr3, {pgd}",
             pgd = in(reg) pgd_addr,
         );
     }
@@ -508,9 +515,10 @@ pub fn map_page_in(pgd_phys: usize, virt: usize, phys: usize, flags: PageFlags) 
 }
 
 /// Switch the active address space by writing a new PGD physical address
-/// to TTBR0_EL1 and flushing the TLB.
+/// to the page table register and flushing the TLB.
 pub fn switch_page_tables(pgd_phys: usize) {
     unsafe {
+        #[cfg(target_arch = "aarch64")]
         core::arch::asm!(
             "msr ttbr0_el1, {pgd}",
             "isb",
@@ -519,16 +527,26 @@ pub fn switch_page_tables(pgd_phys: usize) {
             "isb",
             pgd = in(reg) pgd_phys as u64,
         );
+        
+        #[cfg(target_arch = "x86_64")]
+        core::arch::asm!(
+            "mov cr3, {pgd}",
+            pgd = in(reg) pgd_phys as u64,
+        );
     }
 }
 
-/// Read the currently active PGD physical address from TTBR0_EL1.
+/// Read the currently active PGD physical address from the page table register.
 pub fn current_pgd_phys() -> usize {
-    let ttbr0: u64;
+    let pgd: u64;
     unsafe {
-        core::arch::asm!("mrs {}, ttbr0_el1", out(reg) ttbr0);
+        #[cfg(target_arch = "aarch64")]
+        core::arch::asm!("mrs {}, ttbr0_el1", out(reg) pgd);
+        
+        #[cfg(target_arch = "x86_64")]
+        core::arch::asm!("mov {}, cr3", out(reg) pgd);
     }
-    (ttbr0 & 0x0000_FFFF_FFFF_F000) as usize
+    (pgd & 0x0000_FFFF_FFFF_F000) as usize
 }
 
 /// Translate a virtual address using a specific process's page tables.

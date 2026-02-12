@@ -69,6 +69,7 @@ impl Thread {
 ///
 /// # Safety
 /// Both pointers must be valid ThreadContext pointers.
+#[cfg(target_arch = "aarch64")]
 #[unsafe(naked)]
 pub unsafe extern "C" fn context_switch(old: *mut ThreadContext, new: *const ThreadContext) {
     naked_asm!(
@@ -109,15 +110,70 @@ pub unsafe extern "C" fn context_switch(old: *mut ThreadContext, new: *const Thr
     );
 }
 
+#[cfg(target_arch = "x86_64")]
+#[unsafe(naked)]
+pub unsafe extern "C" fn context_switch(old: *mut ThreadContext, new: *const ThreadContext) {
+    naked_asm!(
+        // Save callee-saved registers into old context
+        // rdi = old context pointer, rsi = new context pointer
+
+        // Save rbx, rbp, r12-r15 (callee-saved in x86_64 System V ABI)
+        "mov [rdi + {rbx_off}], rbx",
+        "mov [rdi + {rbp_off}], rbp",
+        "mov [rdi + {r12_off}], r12",
+        "mov [rdi + {r13_off}], r13",
+        "mov [rdi + {r14_off}], r14",
+        "mov [rdi + {r15_off}], r15",
+
+        // Save RSP
+        "mov [rdi + {sp_off}], rsp",
+
+        // Save return address as PC
+        "mov rax, [rsp]",
+        "mov [rdi + {pc_off}], rax",
+
+        // --- Now restore from new context ---
+
+        // Restore callee-saved registers
+        "mov rbx, [rsi + {rbx_off}]",
+        "mov rbp, [rsi + {rbp_off}]",
+        "mov r12, [rsi + {r12_off}]",
+        "mov r13, [rsi + {r13_off}]",
+        "mov r14, [rsi + {r14_off}]",
+        "mov r15, [rsi + {r15_off}]",
+
+        // Restore RSP
+        "mov rsp, [rsi + {sp_off}]",
+
+        // Jump to saved PC
+        "ret",
+
+        rbx_off = const core::mem::offset_of!(ThreadContext, regs) + 1 * 8,
+        rbp_off = const core::mem::offset_of!(ThreadContext, regs) + 6 * 8,
+        r12_off = const core::mem::offset_of!(ThreadContext, regs) + 11 * 8,
+        r13_off = const core::mem::offset_of!(ThreadContext, regs) + 12 * 8,
+        r14_off = const core::mem::offset_of!(ThreadContext, regs) + 13 * 8,
+        r15_off = const core::mem::offset_of!(ThreadContext, regs) + 14 * 8,
+        sp_off = const core::mem::offset_of!(ThreadContext, sp),
+        pc_off = const core::mem::offset_of!(ThreadContext, pc),
+    );
+}
+
 /// Trampoline that transitions from EL1 → EL0 for first-time user thread scheduling.
 ///
-/// Expects:
+/// Expects (AArch64):
 ///   x19 = user-space entry point  (→ ELR_EL1)
 ///   x20 = user-space stack top    (→ SP_EL0)
 ///   x21 = SPSR value              (→ SPSR_EL1, typically 0 = EL0t)
 ///
+/// Expects (x86_64):
+///   r12 = user-space entry point
+///   r13 = user-space stack top
+///   r14 = RFLAGS value
+///
 /// Both preemptive (eret from IRQ handler) and cooperative (ret from context_switch)
 /// paths reach this function on the new thread's first run.
+#[cfg(target_arch = "aarch64")]
 #[unsafe(naked)]
 pub unsafe extern "C" fn return_to_user_trampoline() {
     naked_asm!(
@@ -135,6 +191,33 @@ pub unsafe extern "C" fn return_to_user_trampoline() {
         "mov x7, #0",
         "mov x8, #0",
         "eret",
+    );
+}
+
+#[cfg(target_arch = "x86_64")]
+#[unsafe(naked)]
+pub unsafe extern "C" fn return_to_user_trampoline() {
+    naked_asm!(
+        // Build an iret frame on the stack
+        "push 0x23",      // SS (user data segment)
+        "push r13",       // RSP (user stack)
+        "push r14",       // RFLAGS
+        "push 0x1B",      // CS (user code segment)
+        "push r12",       // RIP (entry point)
+        // Clear registers
+        "xor rax, rax",
+        "xor rbx, rbx",
+        "xor rcx, rcx",
+        "xor rdx, rdx",
+        "xor rsi, rsi",
+        "xor rdi, rdi",
+        "xor rbp, rbp",
+        "xor r8, r8",
+        "xor r9, r9",
+        "xor r10, r10",
+        "xor r11, r11",
+        // Return to user mode
+        "iretq",
     );
 }
 

@@ -101,14 +101,25 @@ pub fn ready(tid: Tid) {
 /// Timer tick with preemption support
 /// Returns true if a context switch should occur
 pub fn tick_preemptive(ctx: &mut ExceptionContext) -> bool {
-    // Only preempt user-mode (EL0) threads.
-    // Kernel threads at EL1 share the kernel stack via SP_EL1, which the
+    // Only preempt user-mode threads.
+    // Kernel threads share the kernel stack which the
     // exception frame save/restore does NOT switch, so preemptive context
-    // switching between EL1 threads would corrupt the stack.
-    // EL0 threads are safe because they use SP_EL0 (saved in ExceptionContext.sp).
-    let spsr_el = ctx.pstate & 0x0F; // SPSR_EL1.M[3:0]
-    if spsr_el != 0x0 {
-        // Interrupted thread was at EL1 — do not preempt, but still wake sleepers
+    // switching between kernel threads would corrupt the stack.
+    // User-mode threads are safe because they use a separate user stack.
+    
+    #[cfg(target_arch = "aarch64")]
+    let is_user_mode = {
+        let spsr_el = ctx.pstate & 0x0F; // SPSR_EL1.M[3:0]
+        spsr_el == 0x0 // EL0
+    };
+    
+    #[cfg(target_arch = "x86_64")]
+    let is_user_mode = {
+        (ctx.cs & 0x3) == 3 // CPL = 3 (user mode)
+    };
+    
+    if !is_user_mode {
+        // Interrupted thread was in kernel mode — do not preempt, but still wake sleepers
         wake_expired_sleepers();
         return false;
     }
@@ -346,10 +357,13 @@ fn do_cooperative_switch(old_tid: Tid, new_tid: Tid) {
     }
     
     // When this thread is rescheduled and context_switch returns here,
-    // interrupts may have been left masked (e.g. if we were switched out
-    // inside an SVC handler where DAIF was set on exception entry).
+    // interrupts may have been left masked.
     // Re-enable IRQs so timer ticks and UART interrupts continue to work.
+    #[cfg(target_arch = "aarch64")]
     unsafe { core::arch::asm!("msr daifclr, #0xf"); }
+    
+    #[cfg(target_arch = "x86_64")]
+    unsafe { core::arch::asm!("sti"); }
 }
 
 /// Get current thread ID
