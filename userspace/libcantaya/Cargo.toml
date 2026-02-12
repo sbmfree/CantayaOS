@@ -1,0 +1,10 @@
+[package]
+name = "libcantaya"
+version = "0.1.0"
+edition = "2021"
+description = "CantayaOS userspace syscall library"
+
+[dependencies]
+
+[lib]
+crate-type = ["rlib"]

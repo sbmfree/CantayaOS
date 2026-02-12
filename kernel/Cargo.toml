@@ -1,0 +1,21 @@
+[package]
+name = "cantaya_kernel"
+version = "0.1.0"
+edition = "2021"
+authors = ["CantayaOS Team"]
+description = "CantayaOS Hybrid Kernel for ARM64"
+
+[dependencies]
+spin = "0.9"
+bitflags = "2.4"
+
+[features]
+default = []
+debug = []
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[[bin]]
+name = "cantaya_kernel"
+path = "src/main.rs"

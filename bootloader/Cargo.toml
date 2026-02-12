@@ -1,0 +1,10 @@
+[package]
+name = "cantaya_bootloader"
+version = "0.1.0"
+edition = "2021"
+description = "CantayaOS UEFI Bootloader for ARM64"
+
+[dependencies]
+
+[lib]
+crate-type = ["staticlib"]

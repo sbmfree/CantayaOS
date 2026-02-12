@@ -1,0 +1,153 @@
+   0.045728040s  INFO prepare_target{force=false package_id=cantaya_bootloader v0.1.0 (/home/opwckpl/CantayaOS/bootloader) target="cantaya_bootloader"}: cargo::core::compiler::fingerprint: fingerprint error for cantaya_bootloader v0.1.0 (/home/opwckpl/CantayaOS/bootloader)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("cantaya_bootloader", ["staticlib"], "/home/opwckpl/CantayaOS/bootloader/src/lib.rs", Edition2021) }
+   0.045746664s  INFO prepare_target{force=false package_id=cantaya_bootloader v0.1.0 (/home/opwckpl/CantayaOS/bootloader) target="cantaya_bootloader"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/opwckpl/CantayaOS/target/aarch64-cantaya/debug/.fingerprint/cantaya_bootloader-09f0bc31e9bfcb4a/test-lib-cantaya_bootloader`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized::<<std::backtrace::Backtrace>::create::{closure#0}>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: <std::backtrace::Backtrace>::create
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/backtrace.rs:331:13
+   3: cargo_util::paths::read_bytes
+   4: cargo_util::paths::read
+   5: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   6: cargo::core::compiler::fingerprint::prepare_target
+   7: cargo::core::compiler::compile
+   8: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   9: cargo::ops::cargo_compile::compile_ws
+  10: cargo::ops::cargo_compile::compile_with_exec
+  11: cargo::ops::cargo_compile::compile
+  12: cargo::commands::check::exec
+  13: <cargo::cli::Exec>::exec
+  14: cargo::main
+  15: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  16: std::rt::lang_start::<()>::{closure#0}
+  17: <&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/core/src/ops/function.rs:287:21
+  18: std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe, i32>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panicking.rs:581:40
+  19: std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panicking.rs:544:19
+  20: std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe, i32>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panic.rs:359:14
+  21: std::rt::lang_start_internal::{closure#0}
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/rt.rs:175:24
+  22: std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panicking.rs:581:40
+  23: std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panicking.rs:544:19
+  24: std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panic.rs:359:14
+  25: std::rt::lang_start_internal
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/rt.rs:171:5
+  26: main
+  27: __libc_start_call_main
+  28: __libc_start_main_alias_1
+  29: <unknown>
+   0.056019957s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint: fingerprint error for cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("cantaya_kernel", ["staticlib", "rlib"], "/home/opwckpl/CantayaOS/kernel/src/lib.rs", Edition2021) }
+   0.056030623s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/opwckpl/CantayaOS/target/aarch64-cantaya/debug/.fingerprint/cantaya_kernel-34e5e80c598aa14b/test-lib-cantaya_kernel`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized::<<std::backtrace::Backtrace>::create::{closure#0}>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: <std::backtrace::Backtrace>::create
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/backtrace.rs:331:13
+   3: cargo_util::paths::read_bytes
+   4: cargo_util::paths::read
+   5: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   6: cargo::core::compiler::fingerprint::prepare_target
+   7: cargo::core::compiler::compile
+   8: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   9: cargo::ops::cargo_compile::compile_ws
+  10: cargo::ops::cargo_compile::compile_with_exec
+  11: cargo::ops::cargo_compile::compile
+  12: cargo::commands::check::exec
+  13: <cargo::cli::Exec>::exec
+  14: cargo::main
+  15: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  16: std::rt::lang_start::<()>::{closure#0}
+  17: <&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/core/src/ops/function.rs:287:21
+  18: std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe, i32>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panicking.rs:581:40
+  19: std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panicking.rs:544:19
+  20: std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe, i32>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panic.rs:359:14
+  21: std::rt::lang_start_internal::{closure#0}
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/rt.rs:175:24
+  22: std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panicking.rs:581:40
+  23: std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panicking.rs:544:19
+  24: std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panic.rs:359:14
+  25: std::rt::lang_start_internal
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/rt.rs:171:5
+  26: main
+  27: __libc_start_call_main
+  28: __libc_start_main_alias_1
+  29: <unknown>
+   0.056601191s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint: fingerprint error for cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel)/Check { test: true }/TargetInner { name: "cantaya_kernel", doc: true, ..: with_path("/home/opwckpl/CantayaOS/kernel/src/main.rs", Edition2021) }
+   0.056606982s  INFO prepare_target{force=false package_id=cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel) target="cantaya_kernel"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/opwckpl/CantayaOS/target/aarch64-cantaya/debug/.fingerprint/cantaya_kernel-c7ba2ebef09e2e7a/test-bin-cantaya_kernel`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace_rs::backtrace::libunwind::trace
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1: std::backtrace_rs::backtrace::trace_unsynchronized::<<std::backtrace::Backtrace>::create::{closure#0}>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2: <std::backtrace::Backtrace>::create
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/backtrace.rs:331:13
+   3: cargo_util::paths::read_bytes
+   4: cargo_util::paths::read
+   5: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   6: cargo::core::compiler::fingerprint::prepare_target
+   7: cargo::core::compiler::compile
+   8: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   9: cargo::ops::cargo_compile::compile_ws
+  10: cargo::ops::cargo_compile::compile_with_exec
+  11: cargo::ops::cargo_compile::compile
+  12: cargo::commands::check::exec
+  13: <cargo::cli::Exec>::exec
+  14: cargo::main
+  15: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  16: std::rt::lang_start::<()>::{closure#0}
+  17: <&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/core/src/ops/function.rs:287:21
+  18: std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe, i32>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panicking.rs:581:40
+  19: std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panicking.rs:544:19
+  20: std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::marker::Sync + core::panic::unwind_safe::RefUnwindSafe, i32>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panic.rs:359:14
+  21: std::rt::lang_start_internal::{closure#0}
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/rt.rs:175:24
+  22: std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panicking.rs:581:40
+  23: std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panicking.rs:544:19
+  24: std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize>
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/panic.rs:359:14
+  25: std::rt::lang_start_internal
+             at /rustc/6efa357bff60d192688e02de0c78cae24a7f3a55/library/std/src/rt.rs:171:5
+  26: main
+  27: __libc_start_call_main
+  28: __libc_start_main_alias_1
+  29: <unknown>
+    Checking cantaya_bootloader v0.1.0 (/home/opwckpl/CantayaOS/bootloader)
+    Checking cantaya_kernel v0.1.0 (/home/opwckpl/CantayaOS/kernel)
+error: could not compile `cantaya_kernel` (bin "cantaya_kernel" test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `cantaya_bootloader` (lib test) due to 1 previous error
+error: could not compile `cantaya_kernel` (lib test) due to 1 previous error

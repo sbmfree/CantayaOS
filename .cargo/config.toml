@@ -1,0 +1,11 @@
+[build]
+# Default target — custom AArch64 bare metal
+target = "kernel/aarch64-cantaya.json"
+
+[unstable]
+build-std = ["core", "alloc", "compiler_builtins"]
+build-std-features = ["compiler-builtins-mem"]
+json-target-spec = true
+
+[target.'cfg(target_arch = "aarch64")']
+rustflags = ["-C", "link-arg=-T", "-C", "link-arg=kernel/linker.ld"]
