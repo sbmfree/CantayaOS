@@ -3,11 +3,21 @@
 
 set -e
 
-TARGET="aarch64-cantaya"
-USERSPACE_TARGET="aarch64-unknown-none"
+# Architecture selection
+ARCH="${ARCH:-aarch64}"  # Default to aarch64, can be overridden with ARCH=x86_64
+
+if [ "$ARCH" == "x86_64" ]; then
+    TARGET="x86_64-cantaya"
+    USERSPACE_TARGET="x86_64-unknown-none"
+else
+    TARGET="aarch64-cantaya"
+    USERSPACE_TARGET="aarch64-unknown-none"
+fi
+
 MODE="${1:-release}"
 
 echo "=== Building CantayaOS ==="
+echo "Architecture: $ARCH"
 echo "Mode: $MODE"
 echo ""
 

@@ -1,7 +1,16 @@
 #!/bin/bash
 # Run CantayaOS in QEMU
 
-KERNEL="${1:-target/aarch64-cantaya/release/cantaya_kernel}"
+# Architecture selection
+ARCH="${ARCH:-aarch64}"  # Default to aarch64, can be overridden with ARCH=x86_64
+
+if [ "$ARCH" == "x86_64" ]; then
+    DEFAULT_KERNEL="target/x86_64-cantaya/release/cantaya_kernel"
+else
+    DEFAULT_KERNEL="target/aarch64-cantaya/release/cantaya_kernel"
+fi
+
+KERNEL="${1:-$DEFAULT_KERNEL}"
 RAM="${2:-2G}"
 
 if [ ! -f "$KERNEL" ]; then
@@ -19,44 +28,83 @@ if [ ! -f "disk.img" ]; then
 fi
 
 echo "Starting CantayaOS in QEMU..."
+echo "  Architecture: $ARCH"
 echo "  Kernel: $KERNEL"
 echo "  RAM:    $RAM"
-echo "  CPU:    cortex-a72"
 MODE="${3:-window}"
 
-if [ "$MODE" = "window" ]; then
-    echo "  Display: QEMU window (graphical + serial)"
-    echo "  Close the window to exit QEMU"
-    echo ""
-    qemu-system-aarch64 \
-        -M virt,gic-version=3 \
-        -cpu cortex-a72 \
-        -m "$RAM" \
-        -kernel "$KERNEL" \
-        -device ramfb \
-        -device virtio-keyboard-device \
-        -device virtio-tablet-device \
-        -device virtio-net-device,netdev=net0 \
-        -netdev user,id=net0 \
-        -drive file=disk.img,if=none,format=raw,id=hd0 \
-        -device virtio-blk-device,drive=hd0 \
-        -serial vc \
-        -d guest_errors
+if [ "$ARCH" == "x86_64" ]; then
+    echo "  CPU:    qemu64"
+    if [ "$MODE" = "window" ]; then
+        echo "  Display: QEMU window (graphical + serial)"
+        echo "  Close the window to exit QEMU"
+        echo ""
+        qemu-system-x86_64 \
+            -cpu qemu64 \
+            -m "$RAM" \
+            -kernel "$KERNEL" \
+            -device VGA \
+            -device virtio-keyboard-pci \
+            -device virtio-tablet-pci \
+            -device virtio-net-pci,netdev=net0 \
+            -netdev user,id=net0 \
+            -drive file=disk.img,if=none,format=raw,id=hd0 \
+            -device virtio-blk-pci,drive=hd0 \
+            -serial vc \
+            -d guest_errors
+    else
+        echo "  Press Ctrl-A X to exit QEMU"
+        echo ""
+        qemu-system-x86_64 \
+            -cpu qemu64 \
+            -m "$RAM" \
+            -kernel "$KERNEL" \
+            -device VGA \
+            -device virtio-keyboard-pci \
+            -device virtio-tablet-pci \
+            -device virtio-net-pci,netdev=net0 \
+            -netdev user,id=net0 \
+            -drive file=disk.img,if=none,format=raw,id=hd0 \
+            -device virtio-blk-pci,drive=hd0 \
+            -serial mon:stdio \
+            -d guest_errors
+    fi
 else
-    echo "  Press Ctrl-A X to exit QEMU"
-    echo ""
-    qemu-system-aarch64 \
-        -M virt,gic-version=3 \
-        -cpu cortex-a72 \
-        -m "$RAM" \
-        -kernel "$KERNEL" \
-        -device ramfb \
-        -device virtio-keyboard-device \
-        -device virtio-tablet-device \
-        -device virtio-net-device,netdev=net0 \
-        -netdev user,id=net0 \
-        -drive file=disk.img,if=none,format=raw,id=hd0 \
-        -device virtio-blk-device,drive=hd0 \
-        -serial mon:stdio \
-        -d guest_errors
+    echo "  CPU:    cortex-a72"
+    if [ "$MODE" = "window" ]; then
+        echo "  Display: QEMU window (graphical + serial)"
+        echo "  Close the window to exit QEMU"
+        echo ""
+        qemu-system-aarch64 \
+            -M virt,gic-version=3 \
+            -cpu cortex-a72 \
+            -m "$RAM" \
+            -kernel "$KERNEL" \
+            -device ramfb \
+            -device virtio-keyboard-device \
+            -device virtio-tablet-device \
+            -device virtio-net-device,netdev=net0 \
+            -netdev user,id=net0 \
+            -drive file=disk.img,if=none,format=raw,id=hd0 \
+            -device virtio-blk-device,drive=hd0 \
+            -serial vc \
+            -d guest_errors
+    else
+        echo "  Press Ctrl-A X to exit QEMU"
+        echo ""
+        qemu-system-aarch64 \
+            -M virt,gic-version=3 \
+            -cpu cortex-a72 \
+            -m "$RAM" \
+            -kernel "$KERNEL" \
+            -device ramfb \
+            -device virtio-keyboard-device \
+            -device virtio-tablet-device \
+            -device virtio-net-device,netdev=net0 \
+            -netdev user,id=net0 \
+            -drive file=disk.img,if=none,format=raw,id=hd0 \
+            -device virtio-blk-device,drive=hd0 \
+            -serial mon:stdio \
+            -d guest_errors
+    fi
 fi

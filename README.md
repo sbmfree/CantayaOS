@@ -1,6 +1,6 @@
 # CantayaOS
 
-A hybrid kernel operating system written in Rust for ARM64 (AArch64) architecture.
+A hybrid kernel operating system written in Rust supporting both ARM64 (AArch64) and x86_64 architectures.
 
 ## Overview
 
@@ -39,14 +39,14 @@ CantayaOS is a modern operating system featuring a Windows NT-like hybrid kernel
                             │
                     ┌───────┴───────┐
                     │   Hardware    │
-                    │   (ARM64)     │
+                    │ ARM64/x86_64  │
                     └───────────────┘
 ```
 
 ## Features
 
 - **Hybrid Kernel**: Combines microkernel security with monolithic performance
-- **ARM64 Native**: Built specifically for AArch64 architecture
+- **Multi-Architecture**: Supports both ARM64 (AArch64) and x86_64 architectures
 - **Windows NT-like Design**: Familiar concepts (EPROCESS, ETHREAD, handles, etc.)
 - **Modern Rust**: Memory-safe kernel with zero-cost abstractions
 - **Preemptive Multitasking**: Priority-based scheduler with 32 priority levels
@@ -59,17 +59,21 @@ CantayaOS is a modern operating system featuring a Windows NT-like hybrid kernel
 CantayaOS/
 ├── kernel/
 │   ├── src/
-│   │   ├── arch/aarch64/   # ARM64 architecture code
-│   │   ├── hal/            # Hardware Abstraction Layer
-│   │   ├── mm/             # Memory management
-│   │   ├── process/        # Process & thread management
-│   │   ├── ipc/            # Inter-process communication
-│   │   └── drivers/        # Driver framework
-│   ├── linker.ld           # Kernel linker script
-│   └── aarch64-cantaya.json # Target specification
-├── bootloader/             # UEFI bootloader
-├── userspace/              # User applications (future)
-└── tools/                  # Build tools
+│   │   ├── arch/
+│   │   │   ├── aarch64/     # ARM64 architecture code
+│   │   │   └── x86_64/      # x86_64 architecture code
+│   │   ├── hal/             # Hardware Abstraction Layer
+│   │   ├── mm/              # Memory management
+│   │   ├── process/         # Process & thread management
+│   │   ├── ipc/             # Inter-process communication
+│   │   └── drivers/         # Driver framework
+│   ├── linker.ld            # ARM64 linker script
+│   ├── linker-x86_64.ld     # x86_64 linker script
+│   ├── aarch64-cantaya.json # ARM64 target specification
+│   └── x86_64-cantaya.json  # x86_64 target specification
+├── bootloader/              # UEFI bootloader
+├── userspace/               # User applications (future)
+└── tools/                   # Build tools
 ```
 
 ## Building
@@ -77,7 +81,7 @@ CantayaOS/
 ### Prerequisites
 
 - Rust nightly toolchain
-- `aarch64-unknown-none` target
+- `aarch64-unknown-none` and/or `x86_64-unknown-none` target
 - LLVM tools (for objcopy)
 - QEMU (for testing)
 
@@ -86,24 +90,43 @@ CantayaOS/
 ```bash
 # Install Rust nightly
 rustup default nightly
-rustup target add aarch64-unknown-none
+rustup target add aarch64-unknown-none x86_64-unknown-none
 rustup component add rust-src llvm-tools-preview
 
-# Build kernel
+# Build kernel for ARM64 (default)
 ./build.sh
+
+# Build kernel for x86_64
+ARCH=x86_64 ./build.sh
 
 # Build debug version
 ./build.sh debug
+ARCH=x86_64 ./build.sh debug
+
+# Using Makefile
+make release           # Build ARM64 release
+make release-x86_64    # Build x86_64 release
 ```
 
 ## Running
 
 ```bash
-# Run in QEMU
+# Run ARM64 in QEMU
 ./run.sh
 
+# Run x86_64 in QEMU
+ARCH=x86_64 ./run.sh
+
+# Using Makefile
+make run               # Run ARM64
+make run-x86_64        # Run x86_64
+
 # Or manually:
+# ARM64:
 qemu-system-aarch64 -M virt -cpu cortex-a72 -m 128M -nographic -kernel cantaya.bin
+
+# x86_64:
+qemu-system-x86_64 -cpu qemu64 -m 128M -nographic -kernel cantaya.bin
 ```
 
 ## System Calls
