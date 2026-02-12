@@ -174,5 +174,5 @@ unsafe fn cstr_to_str<'a>(ptr: *const u8) -> &'a str {
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     debug_print("[http_get] PANIC!\n");
-    loop { unsafe { asm!("wfi"); } }
+    loop { unsafe { { #[cfg(target_arch = "aarch64")] asm!("wfi"); #[cfg(target_arch = "x86_64")] asm!("hlt"); }; } }
 }

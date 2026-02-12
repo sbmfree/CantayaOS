@@ -98,6 +98,33 @@ struct IdtDescriptor {
 /// Interrupt Descriptor Table (256 entries)
 static mut IDT: [IdtEntry; 256] = [IdtEntry::new(); 256];
 
+// External ISR handlers defined in global_asm
+extern "C" {
+    fn isr0();
+    fn isr1();
+    fn isr2();
+    fn isr3();
+    fn isr4();
+    fn isr5();
+    fn isr6();
+    fn isr7();
+    fn isr8();
+    fn isr10();
+    fn isr11();
+    fn isr12();
+    fn isr13();
+    fn isr14();
+    fn isr16();
+    fn isr17();
+    fn isr18();
+    fn isr19();
+    fn isr20();
+    fn isr30();
+    fn isr128();
+    fn isr_irq_common();
+    fn isr_spurious();
+}
+
 /// Initialize exception vectors (IDT)
 pub fn init() {
     unsafe {

@@ -440,7 +440,7 @@ pub const USER_STACK_BASE: usize = 0x7FFF_FFF0_0000;
 pub fn load_elf_for_user(data: &[u8], pgd_phys: usize, args: &[&str]) -> Result<UserProgram, ElfError> {
     use crate::mm::physical::{alloc_frame, alloc_contiguous_frames};
     use crate::mm::virtual_mem::map_page_in;
-    use crate::arch::aarch64::mmu::{PAGE_SIZE, PageFlags};
+    use crate::arch::mmu::{PAGE_SIZE, PageFlags};
     
     let info = parse_elf(data)?;
     

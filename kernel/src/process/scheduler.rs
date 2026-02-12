@@ -1,7 +1,7 @@
 //! Scheduler - Windows-like priority-based preemptive scheduler
 
 use crate::sync::IrqMutex;
-use crate::arch::aarch64::exceptions::ExceptionContext;
+use crate::arch::exceptions::ExceptionContext;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use super::{Tid, ProcessState, ThreadContext, THREAD_TABLE};
@@ -207,18 +207,68 @@ pub fn schedule_preemptive(ctx: &mut ExceptionContext) -> bool {
 
 /// Save ExceptionContext to ThreadContext
 fn save_ctx_to_thread(thread: &mut ThreadContext, exc: &ExceptionContext) {
-    thread.regs.copy_from_slice(&exc.regs);
-    thread.sp = exc.sp;
-    thread.pc = exc.pc;
-    thread.pstate = exc.pstate;
+    #[cfg(target_arch = "aarch64")]
+    {
+        thread.regs.copy_from_slice(&exc.regs);
+        thread.sp = exc.sp;
+        thread.pc = exc.pc;
+        thread.pstate = exc.pstate;
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        // Save general-purpose registers for x86_64
+        thread.regs[0] = exc.rax;
+        thread.regs[1] = exc.rbx;
+        thread.regs[2] = exc.rcx;
+        thread.regs[3] = exc.rdx;
+        thread.regs[4] = exc.rsi;
+        thread.regs[5] = exc.rdi;
+        thread.regs[6] = exc.rbp;
+        thread.regs[7] = exc.r8;
+        thread.regs[8] = exc.r9;
+        thread.regs[9] = exc.r10;
+        thread.regs[10] = exc.r11;
+        thread.regs[11] = exc.r12;
+        thread.regs[12] = exc.r13;
+        thread.regs[13] = exc.r14;
+        thread.regs[14] = exc.r15;
+        thread.sp = exc.rsp;
+        thread.pc = exc.rip;
+        thread.pstate = exc.rflags;
+    }
 }
 
 /// Load ThreadContext into ExceptionContext (for context switch)
 fn load_thread_to_ctx(exc: &mut ExceptionContext, thread: &ThreadContext) {
-    exc.regs.copy_from_slice(&thread.regs);
-    exc.sp = thread.sp;
-    exc.pc = thread.pc;
-    exc.pstate = thread.pstate;
+    #[cfg(target_arch = "aarch64")]
+    {
+        exc.regs.copy_from_slice(&thread.regs);
+        exc.sp = thread.sp;
+        exc.pc = thread.pc;
+        exc.pstate = thread.pstate;
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        // Load general-purpose registers for x86_64
+        exc.rax = thread.regs[0];
+        exc.rbx = thread.regs[1];
+        exc.rcx = thread.regs[2];
+        exc.rdx = thread.regs[3];
+        exc.rsi = thread.regs[4];
+        exc.rdi = thread.regs[5];
+        exc.rbp = thread.regs[6];
+        exc.r8 = thread.regs[7];
+        exc.r9 = thread.regs[8];
+        exc.r10 = thread.regs[9];
+        exc.r11 = thread.regs[10];
+        exc.r12 = thread.regs[11];
+        exc.r13 = thread.regs[12];
+        exc.r14 = thread.regs[13];
+        exc.r15 = thread.regs[14];
+        exc.rsp = thread.sp;
+        exc.rip = thread.pc;
+        exc.rflags = thread.pstate;
+    }
 }
 
 /// Timer tick - called from timer interrupt (legacy, calls preemptive version)

@@ -263,9 +263,9 @@ pub fn terminate_process(pid: Pid, exit_code: i32) {
                 // Free the kernel stack (if it's not the boot stack)
                 if thread.kernel_stack != 0 && tid != BOOT_TID {
                     let stack_base = thread.kernel_stack - thread::THREAD_STACK_SIZE;
-                    let pages = thread::THREAD_STACK_SIZE / crate::arch::aarch64::mmu::PAGE_SIZE;
+                    let pages = thread::THREAD_STACK_SIZE / crate::arch::mmu::PAGE_SIZE;
                     for i in 0..pages {
-                        crate::mm::physical::free_frame(stack_base + i * crate::arch::aarch64::mmu::PAGE_SIZE);
+                        crate::mm::physical::free_frame(stack_base + i * crate::arch::mmu::PAGE_SIZE);
                     }
                 }
             }

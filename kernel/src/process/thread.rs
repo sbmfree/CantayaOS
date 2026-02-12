@@ -143,7 +143,7 @@ pub const THREAD_STACK_SIZE: usize = 4096 * 4;
 
 /// Allocate a kernel stack for a thread (contiguous physical frames)
 pub fn alloc_kernel_stack() -> Option<usize> {
-    let pages = THREAD_STACK_SIZE / crate::arch::aarch64::mmu::PAGE_SIZE;
+    let pages = THREAD_STACK_SIZE / crate::arch::mmu::PAGE_SIZE;
     
     // Allocate contiguous frames for the stack
     let base = crate::mm::physical::alloc_contiguous_frames(pages)?;

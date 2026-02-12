@@ -35,5 +35,5 @@ fn panic(info: &PanicInfo) -> ! {
     } else {
         debug_print("unknown location\n");
     }
-    loop { unsafe { asm!("wfi"); } }
+    loop { unsafe { { #[cfg(target_arch = "aarch64")] asm!("wfi"); #[cfg(target_arch = "x86_64")] asm!("hlt"); }; } }
 }

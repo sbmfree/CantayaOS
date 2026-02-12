@@ -69,5 +69,5 @@ pub extern "C" fn _start(_argc: u64, _argv: *const *const u8) -> ! {
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     debug_print("[draw] PANIC!\n");
-    loop { unsafe { asm!("wfi"); } }
+    loop { unsafe { { #[cfg(target_arch = "aarch64")] asm!("wfi"); #[cfg(target_arch = "x86_64")] asm!("hlt"); }; } }
 }

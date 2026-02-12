@@ -227,7 +227,7 @@ pub fn handle_irq() {
 }
 
 /// Handle IRQ with context for preemption
-pub fn handle_irq_preemptive(ctx: &mut crate::arch::aarch64::exceptions::ExceptionContext) {
+pub fn handle_irq_preemptive(ctx: &mut crate::arch::exceptions::ExceptionContext) {
     let iar: u64;
     unsafe {
         core::arch::asm!("mrs {}, ICC_IAR1_EL1", out(reg) iar);

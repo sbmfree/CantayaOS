@@ -9,7 +9,7 @@
 
 use crate::sync::IrqMutex;
 use crate::mm::{physical, virtual_mem};
-use crate::arch::aarch64::mmu::PageFlags;
+use crate::arch::mmu::PageFlags;
 use crate::drivers::fwcfg;
 
 pub const SCREEN_WIDTH: usize  = 800;

@@ -6,16 +6,26 @@
 //! - Drops from EL2 → EL1 if needed
 //! - Prints hardware info (DTB pointer, RAM)
 //! - Jumps to the kernel entry point
+//!
+//! Note: This bootloader is only for ARM64. x86_64 uses direct kernel loading.
 
 #![no_std]
 #![no_main]
 
+#[cfg(target_arch = "aarch64")]
 use core::panic::PanicInfo;
+#[cfg(target_arch = "aarch64")]
 use core::arch::asm;
 
+// x86_64 stub - not used
+#[cfg(target_arch = "x86_64")]
+pub fn dummy() {}
+
+#[cfg(target_arch = "aarch64")]
 /// Kernel load address (must match linker.ld ORIGIN)
 const KERNEL_LOAD_ADDR: usize = 0x40080000;
 
+#[cfg(target_arch = "aarch64")]
 /// Bootloader entry point
 /// On QEMU virt, x0 = DTB address on entry
 #[no_mangle]
@@ -67,6 +77,7 @@ pub extern "C" fn _start() -> ! {
     kernel_entry();
 }
 
+#[cfg(target_arch = "aarch64")]
 /// Get current exception level
 fn current_el() -> u8 {
     let el: u64;
@@ -76,6 +87,7 @@ fn current_el() -> u8 {
     ((el >> 2) & 0x3) as u8
 }
 
+#[cfg(target_arch = "aarch64")]
 /// Drop from EL2 to EL1
 fn drop_to_el1() {
     unsafe {
@@ -113,15 +125,20 @@ fn drop_to_el1() {
 // PL011 UART driver (QEMU virt machine)
 // -------------------------------------------------------------------------
 
+#[cfg(target_arch = "aarch64")]
 const UART_BASE: usize = 0x0900_0000;
+#[cfg(target_arch = "aarch64")]
 const UART_DR: *mut u8 = UART_BASE as *mut u8;
+#[cfg(target_arch = "aarch64")]
 const UART_FR: *const u32 = (UART_BASE + 0x18) as *const u32;
 
+#[cfg(target_arch = "aarch64")]
 fn init_uart() {
     // UART is pre-initialized by QEMU for the virt machine
     // Just make sure the FIFO is drained
 }
 
+#[cfg(target_arch = "aarch64")]
 fn print_char(c: u8) {
     unsafe {
         // Wait until TX FIFO is not full (bit 5 of FR)
@@ -130,12 +147,14 @@ fn print_char(c: u8) {
     }
 }
 
+#[cfg(target_arch = "aarch64")]
 fn print_str(s: &str) {
     for c in s.bytes() {
         print_char(c);
     }
 }
 
+#[cfg(target_arch = "aarch64")]
 /// Print a u64 in decimal
 fn print_dec(mut n: u64) {
     if n == 0 {
@@ -155,6 +174,7 @@ fn print_dec(mut n: u64) {
     }
 }
 
+#[cfg(target_arch = "aarch64")]
 /// Print a u64 in hexadecimal
 fn print_hex(n: u64) {
     let hex = b"0123456789abcdef";
@@ -170,6 +190,7 @@ fn print_hex(n: u64) {
 }
 
 /// Panic handler
+#[cfg(target_arch = "aarch64")]
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     print_str("\r\n!!! BOOTLOADER PANIC !!!\r\n");
@@ -177,4 +198,11 @@ fn panic(_info: &PanicInfo) -> ! {
     loop {
         unsafe { asm!("wfi"); }
     }
+}
+
+// x86_64 stub - provide a panic handler for when this crate is included
+#[cfg(target_arch = "x86_64")]
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    loop {}
 }

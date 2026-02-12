@@ -43,8 +43,8 @@ pub extern "C" fn kernel_main() -> ! {
     hal::console::init();
     
     // CPU features and exception vectors
-    arch::aarch64::cpu::init();
-    arch::aarch64::exceptions::init();
+    arch::cpu::init();
+    arch::exceptions::init();
     
     // ---- Phase 1: Hardware Abstraction Layer (GIC, timer, syslog) ----
     hal::init();
@@ -78,8 +78,8 @@ pub extern "C" fn kernel_main() -> ! {
 
     // ---- Phase 2: Architecture init (already done in Phase 0, just show status) ----
     boot_status(YELLOW, "ARCH", "Initializing CPU & exceptions...");
-    // arch::aarch64::cpu::init(); -- done early in Phase 0
-    // arch::aarch64::exceptions::init(); -- done early in Phase 0
+    // arch::cpu::init(); -- done early in Phase 0
+    // arch::exceptions::init(); -- done early in Phase 0
     boot_ok(GREEN, "ARCH", "CPU features, exception vectors ready");
 
     // ---- Phase 3: Memory Management ----
@@ -192,7 +192,7 @@ pub extern "C" fn kernel_main() -> ! {
     kprintln!("");
 
     // Enable interrupts
-    arch::aarch64::cpu::enable_interrupts();
+    arch::cpu::enable_interrupts();
     
     // Start the scheduler (enables preemption)
     process::scheduler::start();
@@ -245,7 +245,7 @@ fn worker_task_2() -> ! {
 /// Panic handler
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    arch::aarch64::cpu::disable_interrupts();
+    arch::cpu::disable_interrupts();
     
     kprintln!("");
     kprintln!("\x1b[1m\x1b[31m  ╔══════════════════════════════════════╗\x1b[0m");
@@ -257,7 +257,7 @@ fn panic(info: &PanicInfo) -> ! {
     kprintln!("\x1b[2m  System halted.\x1b[0m");
     
     loop {
-        arch::aarch64::cpu::halt();
+        arch::cpu::halt();
     }
 }
 

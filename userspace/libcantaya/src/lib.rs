@@ -218,7 +218,14 @@ pub fn exit(code: i32) -> ! {
     let pid = get_pid();
     unsafe { syscall2(SYS_NT_TERMINATE_PROCESS, pid, code as u64); }
     // Should never return, but just in case:
-    loop { unsafe { asm!("wfi"); } }
+    loop { 
+        unsafe { 
+            #[cfg(target_arch = "aarch64")]
+            asm!("wfi");
+            #[cfg(target_arch = "x86_64")]
+            asm!("hlt");
+        } 
+    }
 }
 
 // -------------------------------------------------------------------------

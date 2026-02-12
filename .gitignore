@@ -1,6 +1,7 @@
 # Build artifacts
 /target/
 cantaya.bin
+userspace/target/
 
 # Editor
 .vscode/

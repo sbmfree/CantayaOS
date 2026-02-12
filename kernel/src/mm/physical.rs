@@ -3,7 +3,7 @@
 //! Bitmap-based page frame allocator
 
 use spin::Mutex;
-use crate::arch::aarch64::mmu::PAGE_SIZE;
+use crate::arch::mmu::PAGE_SIZE;
 
 /// Maximum physical memory (2GB)
 const MAX_MEMORY: usize = 2 * 1024 * 1024 * 1024;

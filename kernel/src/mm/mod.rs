@@ -31,7 +31,7 @@ pub fn init() {
     virtual_mem::init();
     
     // 3. Enable MMU now that page tables are set up
-    crate::arch::aarch64::mmu::init();
+    crate::arch::mmu::init();
     
     // 4. Kernel heap allocator (works now with MMU + page tables)
     heap::init();

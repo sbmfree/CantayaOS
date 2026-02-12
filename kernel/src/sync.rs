@@ -6,7 +6,7 @@
 
 use spin::Mutex;
 use core::ops::{Deref, DerefMut};
-use crate::arch::aarch64::cpu;
+use crate::arch::cpu;
 
 /// An IRQ-safe mutex wrapper around `spin::Mutex`.
 ///

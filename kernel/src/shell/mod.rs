@@ -152,7 +152,7 @@ pub fn run() -> ! {
             kprintln!("");
             kprintln!("  {}Halting system...{}", DIM, RESET);
             kprintln!("  {}It is now safe to close QEMU.{}", DIM, RESET);
-            loop { crate::arch::aarch64::cpu::halt(); }
+            loop { crate::arch::cpu::halt(); }
         }
         print_prompt(&shell);
         let line = read_line_advanced(&mut shell);

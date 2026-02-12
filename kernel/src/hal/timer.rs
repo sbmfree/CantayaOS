@@ -2,7 +2,7 @@
 
 use core::arch::asm;
 use crate::sync::IrqMutex;
-use crate::arch::aarch64::exceptions::ExceptionContext;
+use crate::arch::exceptions::ExceptionContext;
 
 /// Timer frequency (usually 62.5 MHz on QEMU)
 static TIMER_FREQ: IrqMutex<u64> = IrqMutex::new(0);

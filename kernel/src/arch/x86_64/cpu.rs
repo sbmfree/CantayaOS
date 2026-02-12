@@ -86,11 +86,13 @@ pub fn dsb() {
 pub fn isb() {
     unsafe {
         // CPUID serializes execution
+        // We need to save/restore ebx since it's reserved by LLVM
         asm!(
+            "push rbx",
             "xor eax, eax",
             "cpuid",
+            "pop rbx",
             out("eax") _,
-            out("ebx") _,
             out("ecx") _,
             out("edx") _,
         );

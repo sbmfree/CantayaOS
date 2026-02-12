@@ -287,16 +287,16 @@ fn alloc_error(layout: Layout) -> ! {
 /// Initialize heap — called after physical/virtual memory is set up
 pub fn init() {
     // Map heap pages into virtual memory (identity mapped)
-    for offset in (0..HEAP_SIZE).step_by(crate::arch::aarch64::mmu::PAGE_SIZE) {
+    for offset in (0..HEAP_SIZE).step_by(crate::arch::mmu::PAGE_SIZE) {
         let addr = HEAP_START + offset;
         crate::mm::virtual_mem::map_page(
             addr,
             addr, // identity mapped
-            crate::arch::aarch64::mmu::PageFlags::VALID
-                | crate::arch::aarch64::mmu::PageFlags::PAGE
-                | crate::arch::aarch64::mmu::PageFlags::ACCESSED
-                | crate::arch::aarch64::mmu::PageFlags::INNER_SHAREABLE
-                | crate::arch::aarch64::mmu::PageFlags::ATTR_NORMAL_WB,
+            crate::arch::mmu::PageFlags::VALID
+                | crate::arch::mmu::PageFlags::PAGE
+                | crate::arch::mmu::PageFlags::ACCESSED
+                | crate::arch::mmu::PageFlags::INNER_SHAREABLE
+                | crate::arch::mmu::PageFlags::ATTR_NORMAL_WB,
         );
     }
 

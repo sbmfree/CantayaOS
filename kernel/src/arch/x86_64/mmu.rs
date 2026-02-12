@@ -88,11 +88,12 @@ fn enable_features() {
         let mut eax: u32;
         let mut edx: u32;
         asm!(
+            "push rbx",
             "mov eax, 0x80000001",
             "cpuid",
+            "pop rbx",
             out("eax") eax,
             out("edx") edx,
-            out("ebx") _,
             out("ecx") _,
         );
         
@@ -124,12 +125,10 @@ fn enable_features() {
 pub fn invalidate_tlb() {
     unsafe {
         // Reload CR3 to flush entire TLB
-        let cr3: u64;
         asm!(
-            "mov {}, cr3",
-            "mov cr3, {}",
-            out(reg) cr3,
-            in(reg) cr3,
+            "mov {tmp}, cr3",
+            "mov cr3, {tmp}",
+            tmp = out(reg) _,
         );
     }
 }

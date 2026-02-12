@@ -5,7 +5,7 @@
 //! and user-space address space management.
 
 use core::sync::atomic::{AtomicUsize, Ordering};
-use crate::arch::aarch64::mmu::{PAGE_SIZE, PageFlags, invalidate_tlb};
+use crate::arch::mmu::{PAGE_SIZE, PageFlags, invalidate_tlb};
 
 /// Virtual address space regions (Windows NT-like layout)
 pub const KERNEL_BASE: usize = 0xFFFF_0000_0000_0000;
