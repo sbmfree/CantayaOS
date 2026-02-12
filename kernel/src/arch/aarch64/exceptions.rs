@@ -214,14 +214,18 @@ extern "C" fn sync_handler_rust(ctx: &mut ExceptionContext) {
             crate::process::syscall::handle_syscall_ctx(ctx);
         }
         0x20 | 0x21 => {
-            // Instruction Abort
+            // Instruction Abort from EL1
             crate::kprintln!("[exc] Instruction Abort at {:#x} (FAR={:#x} ISS={:#x})", ctx.pc, ctx.far, iss);
-            crate::mm::handle_page_fault(ctx.far);
+            if !crate::mm::handle_page_fault(ctx.far) {
+                panic!("Kernel instruction abort at {:#x} FAR={:#x}", ctx.pc, ctx.far);
+            }
         }
         0x24 | 0x25 => {
-            // Data Abort
+            // Data Abort from EL1
             crate::kprintln!("[exc] Data Abort at {:#x} (FAR={:#x} ISS={:#x})", ctx.pc, ctx.far, iss);
-            crate::mm::handle_page_fault(ctx.far);
+            if !crate::mm::handle_page_fault(ctx.far) {
+                panic!("Kernel data abort at {:#x} FAR={:#x}", ctx.pc, ctx.far);
+            }
         }
         _ => {
             crate::kprintln!("Unhandled synchronous exception:");
@@ -247,15 +251,36 @@ extern "C" fn sync_lower_handler_rust(ctx: &mut ExceptionContext) {
         }
         0x20 | 0x24 => {
             // Instruction/Data Abort from lower EL
-            crate::kprintln!("[exc] Lower-EL abort: EC={:#x} FAR={:#x} ELR={:#x}",
-                ec, ctx.far, ctx.pc);
-            crate::mm::handle_page_fault(ctx.far);
+            if !crate::mm::handle_page_fault(ctx.far) {
+                // Unresolvable fault in userspace — terminate the process
+                crate::kprintln!("[exc] Killing user process: unresolvable fault EC={:#x} FAR={:#x} ELR={:#x}",
+                    ec, ctx.far, ctx.pc);
+                terminate_faulting_and_schedule(ctx);
+            }
         }
         _ => {
-            crate::kprintln!("Unhandled lower-EL exception: EC={:#x} FAR={:#x} ELR={:#x}", ec, ctx.far, ctx.pc);
-            panic!("Unhandled lower-EL exception EC={:#x}", ec);
+            crate::kprintln!("[exc] Killing user process: unhandled exception EC={:#x} FAR={:#x} ELR={:#x}",
+                ec, ctx.far, ctx.pc);
+            terminate_faulting_and_schedule(ctx);
         }
     }
+}
+
+/// Terminate the currently-running userspace process and load the next thread.
+fn terminate_faulting_and_schedule(ctx: &mut ExceptionContext) {
+    use crate::process::scheduler;
+    // Find current thread's PID and terminate its process
+    if let Some(tid) = scheduler::current_tid() {
+        let pid = {
+            let table = crate::process::THREAD_TABLE.lock();
+            table.get(&tid).map(|t| t.pid)
+        };
+        if let Some(pid) = pid {
+            crate::process::terminate_process(pid, -1); // exit code -1 = killed
+        }
+    }
+    // Schedule next thread via preemptive path (loads new context into ctx)
+    scheduler::schedule_preemptive(ctx);
 }
 
 #[no_mangle]

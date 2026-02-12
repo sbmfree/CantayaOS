@@ -5,6 +5,8 @@ edition = "2021"
 description = "CantayaOS init process (first user-space process)"
 
 [dependencies]
+libcantaya = { path = "../libcantaya" }
 
-[lib]
-crate-type = ["staticlib"]
+[[bin]]
+name = "cantaya_init"
+path = "src/main.rs"

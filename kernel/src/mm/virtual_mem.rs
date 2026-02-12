@@ -245,6 +245,9 @@ fn setup_kernel_mappings() {
             // Jump to UART
             addr = 0x0900_0000;
         } else if addr == 0x0900_0000 + PAGE_SIZE * 4 {
+            // Jump to PL031 RTC
+            addr = 0x0901_0000;
+        } else if addr == 0x0901_0000 + PAGE_SIZE {
             // Jump to fw-cfg
             addr = 0x0902_0000;
         } else if addr == 0x0902_0000 + PAGE_SIZE {
@@ -334,8 +337,8 @@ pub fn virt_to_phys(virt: usize) -> Option<usize> {
     None
 }
 
-/// Handle page fault
-pub fn handle_fault(address: u64) {
+/// Handle page fault. Returns `true` if resolved, `false` if unresolvable.
+pub fn handle_fault(address: u64) -> bool {
     let addr = address as usize;
 
     // Check if this is a valid kernel address that just needs mapping
@@ -348,12 +351,11 @@ pub fn handle_fault(address: u64) {
                 PageFlags::VALID | PageFlags::PAGE | PageFlags::ACCESSED
                     | PageFlags::INNER_SHAREABLE | PageFlags::ATTR_NORMAL_WB,
             );
-            return;
+            return true;
         }
     }
 
-    crate::kprintln!("FATAL: Unhandled page fault at {:#x}", address);
-    panic!("Page fault at {:#x}", address);
+    false
 }
 
 /// Virtual Address Descriptor (VAD) - Windows-like memory region tracking

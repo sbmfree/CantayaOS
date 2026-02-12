@@ -473,69 +473,118 @@ pub fn init() {
             }
         }
 
-        // Create /bin/hello - a minimal ELF64 AArch64 executable
-        // This is a real ELF header + program header for a tiny "hello world"
-        // The actual code segment would normally do a syscall to write + exit
+        // ---- Embed real cross-compiled userspace ELF binaries ----
+        // These are built by `build.sh` (userspace step) before the kernel.
+
+        // /bin/init — the init process ELF
+        let init_elf: &[u8] = include_bytes!("../../../userspace/target/aarch64-unknown-none/release/cantaya_init");
+        let init_id = fs.alloc_inode();
+        fs.inodes.insert(init_id, Inode {
+            id: init_id,
+            file_type: FileType::Regular,
+            data: InodeData::File { data: init_elf.to_vec() },
+            created: 0,
+            modified: 0,
+        });
+        if let Some(bin) = fs.inodes.get_mut(&bin_id) {
+            if let InodeData::Directory { children } = &mut bin.data {
+                children.insert(String::from("init"), init_id);
+            }
+        }
+
+        // /bin/hello — simple hello-world program
+        let hello_elf: &[u8] = include_bytes!("../../../userspace/target/aarch64-unknown-none/release/hello");
         let hello_id = fs.alloc_inode();
-        let hello_elf: Vec<u8> = {
-            let mut elf = Vec::new();
-            
-            // ELF header (64 bytes)
-            elf.extend_from_slice(&[0x7f, b'E', b'L', b'F']);  // Magic
-            elf.push(2);  // 64-bit
-            elf.push(1);  // Little endian
-            elf.push(1);  // ELF version
-            elf.push(0);  // OS/ABI (SYSV)
-            elf.extend_from_slice(&[0; 8]);  // Padding
-            elf.extend_from_slice(&[2, 0]);  // Type: EXEC
-            elf.extend_from_slice(&[0xb7, 0]);  // Machine: AArch64 (183)
-            elf.extend_from_slice(&[1, 0, 0, 0]);  // Version
-            elf.extend_from_slice(&[0x78, 0, 0x40, 0, 0, 0, 0, 0]);  // Entry: 0x400078
-            elf.extend_from_slice(&[0x40, 0, 0, 0, 0, 0, 0, 0]);  // Phoff: 64
-            elf.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]);  // Shoff: 0
-            elf.extend_from_slice(&[0, 0, 0, 0]);  // Flags
-            elf.extend_from_slice(&[0x40, 0]);  // Ehsize: 64
-            elf.extend_from_slice(&[0x38, 0]);  // Phentsize: 56
-            elf.extend_from_slice(&[1, 0]);  // Phnum: 1
-            elf.extend_from_slice(&[0x40, 0]);  // Shentsize: 64
-            elf.extend_from_slice(&[0, 0]);  // Shnum: 0
-            elf.extend_from_slice(&[0, 0]);  // Shstrndx: 0
-            
-            // Program header (56 bytes) at offset 64
-            elf.extend_from_slice(&[1, 0, 0, 0]);  // Type: PT_LOAD
-            elf.extend_from_slice(&[5, 0, 0, 0]);  // Flags: PF_R | PF_X
-            elf.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]);  // Offset: 0
-            elf.extend_from_slice(&[0, 0, 0x40, 0, 0, 0, 0, 0]);  // Vaddr: 0x400000
-            elf.extend_from_slice(&[0, 0, 0x40, 0, 0, 0, 0, 0]);  // Paddr: 0x400000
-            elf.extend_from_slice(&[0x88, 0, 0, 0, 0, 0, 0, 0]);  // Filesz: 136
-            elf.extend_from_slice(&[0x88, 0, 0, 0, 0, 0, 0, 0]);  // Memsz: 136
-            elf.extend_from_slice(&[0, 0x10, 0, 0, 0, 0, 0, 0]);  // Align: 0x1000
-            
-            // Code at offset 120 (0x78) - entry point is 0x400078
-            // AArch64 instructions for an infinite loop
-            // This tests that user-mode execution works
-            
-            // mov x0, #0x42        ; Load 'B' (0x42) into x0
-            elf.extend_from_slice(&[0x40, 0x08, 0x80, 0xd2]);  // offset 0x78
-            
-            // b .                  ; Branch to self (infinite loop)
-            elf.extend_from_slice(&[0x00, 0x00, 0x00, 0x14]);  // offset 0x7c
-            
-            // Padding to make file size match
-            elf.extend_from_slice(&[0x00; 8]);   // offset 0x80-0x87
-            
-            elf
-        };
         fs.inodes.insert(hello_id, Inode {
             id: hello_id,
             file_type: FileType::Regular,
-            data: InodeData::File { data: hello_elf },
+            data: InodeData::File { data: hello_elf.to_vec() },
             created: 0,
             modified: 0,
         });
         if let Some(bin) = fs.inodes.get_mut(&bin_id) {
             if let InodeData::Directory { children } = &mut bin.data {
                 children.insert(String::from("hello"), hello_id);
+            }
+        }
+
+        // /bin/shell_hello — syscall demo program
+        let shell_hello_elf: &[u8] = include_bytes!("../../../userspace/target/aarch64-unknown-none/release/shell_hello");
+        let shell_hello_id = fs.alloc_inode();
+        fs.inodes.insert(shell_hello_id, Inode {
+            id: shell_hello_id,
+            file_type: FileType::Regular,
+            data: InodeData::File { data: shell_hello_elf.to_vec() },
+            created: 0,
+            modified: 0,
+        });
+        if let Some(bin) = fs.inodes.get_mut(&bin_id) {
+            if let InodeData::Directory { children } = &mut bin.data {
+                children.insert(String::from("shell_hello"), shell_hello_id);
+            }
+        }
+
+        // /bin/echo — prints its arguments
+        let echo_elf: &[u8] = include_bytes!("../../../userspace/target/aarch64-unknown-none/release/echo");
+        let echo_id = fs.alloc_inode();
+        fs.inodes.insert(echo_id, Inode {
+            id: echo_id,
+            file_type: FileType::Regular,
+            data: InodeData::File { data: echo_elf.to_vec() },
+            created: 0,
+            modified: 0,
+        });
+        if let Some(bin) = fs.inodes.get_mut(&bin_id) {
+            if let InodeData::Directory { children } = &mut bin.data {
+                children.insert(String::from("echo"), echo_id);
+            }
+        }
+
+        // /bin/cat — reads and displays file contents
+        let cat_elf: &[u8] = include_bytes!("../../../userspace/target/aarch64-unknown-none/release/cat");
+        let cat_id = fs.alloc_inode();
+        fs.inodes.insert(cat_id, Inode {
+            id: cat_id,
+            file_type: FileType::Regular,
+            data: InodeData::File { data: cat_elf.to_vec() },
+            created: 0,
+            modified: 0,
+        });
+        if let Some(bin) = fs.inodes.get_mut(&bin_id) {
+            if let InodeData::Directory { children } = &mut bin.data {
+                children.insert(String::from("cat"), cat_id);
+            }
+        }
+
+        // /bin/draw — pixel buffer GUI demo
+        let draw_elf: &[u8] = include_bytes!("../../../userspace/target/aarch64-unknown-none/release/draw");
+        let draw_id = fs.alloc_inode();
+        fs.inodes.insert(draw_id, Inode {
+            id: draw_id,
+            file_type: FileType::Regular,
+            data: InodeData::File { data: draw_elf.to_vec() },
+            created: 0,
+            modified: 0,
+        });
+        if let Some(bin) = fs.inodes.get_mut(&bin_id) {
+            if let InodeData::Directory { children } = &mut bin.data {
+                children.insert(String::from("draw"), draw_id);
+            }
+        }
+
+        // /bin/http_get — simple TCP HTTP GET client
+        let http_get_elf: &[u8] = include_bytes!("../../../userspace/target/aarch64-unknown-none/release/http_get");
+        let http_get_id = fs.alloc_inode();
+        fs.inodes.insert(http_get_id, Inode {
+            id: http_get_id,
+            file_type: FileType::Regular,
+            data: InodeData::File { data: http_get_elf.to_vec() },
+            created: 0,
+            modified: 0,
+        });
+        if let Some(bin) = fs.inodes.get_mut(&bin_id) {
+            if let InodeData::Directory { children } = &mut bin.data {
+                children.insert(String::from("http_get"), http_get_id);
             }
         }
 

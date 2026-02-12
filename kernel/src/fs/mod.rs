@@ -8,6 +8,7 @@ pub mod ramfs;
 pub mod devfs;
 pub mod procfs;
 pub mod elf;
+pub mod fat32;
 
 use alloc::string::String;
 use spin::Mutex;
@@ -86,6 +87,7 @@ pub fn init() {
     ramfs::init();
     devfs::init();
     procfs::init();
+    fat32::init();
     *INITIALIZED.lock() = true;
 }
 

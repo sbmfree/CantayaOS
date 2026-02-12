@@ -64,6 +64,8 @@ pub const VRING_DESC_F_WRITE: u16 = 2;
 const VIRTIO_MAGIC: u32 = 0x7472_6976; // "virt"
 
 /// Virtio device IDs we care about
+pub const VIRTIO_DEV_NET: u32 = 1;
+pub const VIRTIO_DEV_BLK: u32 = 2;
 pub const VIRTIO_DEV_INPUT: u32 = 18;
 
 // MMIO transport slots
@@ -275,6 +277,68 @@ impl Virtqueue {
         }
     }
 
+    /// Submit a chain of descriptors.
+    /// Each element is (phys_addr, len, device_writable).
+    /// Returns the head descriptor index (used to identify completion).
+    pub fn submit_chain(&mut self, descs: &[(usize, u32, bool)]) -> Option<u16> {
+        if descs.is_empty() { return None; }
+        if (self.num_free as usize) < descs.len() { return None; }
+
+        let mut head: Option<u16> = None;
+        let mut prev: Option<u16> = None;
+
+        for (i, &(phys, len, writable)) in descs.iter().enumerate() {
+            let di = self.alloc_desc()?;
+            if head.is_none() { head = Some(di); }
+
+            unsafe {
+                let desc = (self.desc_phys as *mut VringDesc).add(di as usize);
+                (*desc).addr = phys as u64;
+                (*desc).len = len;
+                let last = i + 1 == descs.len();
+                (*desc).flags = if writable { VRING_DESC_F_WRITE } else { 0 }
+                    | if !last { VRING_DESC_F_NEXT } else { 0 };
+                (*desc).next = 0; // will be set below if not last
+            }
+
+            if let Some(pi) = prev {
+                unsafe {
+                    let prev_desc = (self.desc_phys as *mut VringDesc).add(pi as usize);
+                    (*prev_desc).next = di;
+                }
+            }
+            prev = Some(di);
+        }
+
+        // Add head to available ring
+        let head_idx = head.unwrap();
+        unsafe {
+            let avail = self.avail_phys as *mut VringAvail;
+            let avail_idx = ptr::read_volatile(&(*avail).idx);
+            let ring = (self.avail_phys + 4) as *mut u16;
+            ptr::write_volatile(ring.add((avail_idx % self.queue_size) as usize), head_idx);
+            core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+            ptr::write_volatile(&mut (*avail).idx, avail_idx.wrapping_add(1));
+        }
+        Some(head_idx)
+    }
+
+    /// Free a chain of descriptors starting from `head` following NEXT flags.
+    pub fn free_chain(&mut self, head: u16) {
+        let mut idx = head;
+        loop {
+            let (next, has_next) = unsafe {
+                let desc = (self.desc_phys as *mut VringDesc).add(idx as usize);
+                let n = (*desc).next;
+                let f = (*desc).flags & VRING_DESC_F_NEXT != 0;
+                (n, f)
+            };
+            self.free_desc(idx);
+            if !has_next { break; }
+            idx = next;
+        }
+    }
+
     /// Process used buffers. Returns an iterator of (descriptor_index, bytes_written).
     pub fn poll_used(&mut self) -> Vec<(u16, u32)> {
         let mut results = Vec::new();
@@ -307,6 +371,11 @@ pub struct VirtioMmioDevice {
 }
 
 static DISCOVERED: IrqMutex<Vec<VirtioMmioDevice>> = IrqMutex::new(Vec::new());
+
+/// Return (base, device_id, irq) for all discovered devices.
+pub fn discovered_devices() -> Vec<(usize, u32, u32)> {
+    DISCOVERED.lock().iter().map(|d| (d.base, d.device_id, d.irq)).collect()
+}
 
 /// Probe all 32 slots and return discovered devices.
 pub fn probe() -> Vec<(usize, u32, u32)> {
@@ -385,9 +454,14 @@ pub fn driver_ok(base: usize) {
     }
 }
 
-/// Read a 32-bit value from device config space (offset relative to config base).
+/// Read a byte from device config space (offset relative to config base).
 pub fn read_config_u8(base: usize, offset: usize) -> u8 {
     unsafe { ptr::read_volatile((base + CONFIG + offset) as *const u8) }
+}
+
+/// Read a 32-bit value from device config space.
+pub fn read_config_u32(base: usize, offset: usize) -> u32 {
+    unsafe { ptr::read_volatile((base + CONFIG + offset) as *const u32) }
 }
 
 /// Acknowledge interrupt (clears INTERRUPT_STATUS).
@@ -405,6 +479,8 @@ pub fn handle_irq(slot_index: usize) {
     let dev_id = unsafe { read32(base + DEVICE_ID) };
 
     match dev_id {
+        VIRTIO_DEV_NET => crate::drivers::virtio_net::handle_irq(base),
+        VIRTIO_DEV_BLK => crate::drivers::virtio_blk::handle_irq(base),
         VIRTIO_DEV_INPUT => crate::drivers::virtio_input::handle_irq(base),
         _ => {
             ack_interrupt(base);

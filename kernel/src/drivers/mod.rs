@@ -9,6 +9,8 @@ pub mod fwcfg;
 pub mod framebuffer;
 pub mod virtio_mmio;
 pub mod virtio_input;
+pub mod virtio_net;
+pub mod virtio_blk;
 
 use alloc::vec::Vec;
 use spin::Mutex;

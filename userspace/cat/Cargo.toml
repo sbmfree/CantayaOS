@@ -1,0 +1,12 @@
+[package]
+name = "cat"
+version = "0.1.0"
+edition = "2021"
+description = "Cat command — reads and displays file contents"
+
+[dependencies]
+libcantaya = { path = "../libcantaya" }
+
+[[bin]]
+name = "cat"
+path = "src/main.rs"

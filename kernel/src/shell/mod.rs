@@ -1313,15 +1313,10 @@ fn cmd_version(output: &mut Option<&mut String>) {
 }
 
 fn cmd_date(output: &mut Option<&mut String>) {
-    let ms = hal::timer::uptime_ms();
-    let secs = ms / 1000;
-    let mins = secs / 60;
-    let hours = mins / 60;
-    // Base date: Feb 9 2026 00:00:00 + uptime
-    let base_hour = hours % 24;
-    let base_min = mins % 60;
-    let base_sec = secs % 60;
-    outln!(output, "Sun Feb  9 {:02}:{:02}:{:02} UTC 2026", base_hour, base_min, base_sec);
+    let dt = hal::rtc::now();
+    outln!(output, "{} {} {:>2} {:02}:{:02}:{:02} UTC {}",
+        dt.weekday_str(), dt.month_str(), dt.day,
+        dt.hour, dt.minute, dt.second, dt.year);
 }
 
 fn cmd_history(shell: &Shell, output: &mut Option<&mut String>) {
@@ -2246,8 +2241,18 @@ fn cmd_ping(args: &[&str], output: &mut Option<&mut String>) {
         [127, 0, 0, 1]
     } else if let Some(parsed) = net::parse_ip(host) {
         parsed
+    } else if crate::drivers::virtio_net::get_mac().is_some() {
+        // Real DNS lookup via UDP
+        outln!(output, "Resolving {}...", host);
+        match crate::net::dns::resolve(host) {
+            Some(ip) => ip,
+            None => {
+                outln!(output, "ping: {}: Name or service not known", host);
+                return;
+            }
+        }
     } else {
-        // DNS "resolve" — simulate
+        // Fallback simulated DNS for common hosts
         match host {
             "google.com" => [142, 250, 80, 46],
             "github.com" => [140, 82, 121, 3],
@@ -2262,31 +2267,66 @@ fn cmd_ping(args: &[&str], output: &mut Option<&mut String>) {
     outln!(output, "PING {} ({}) 56(84) bytes of data.",
         host, net::format_ip(&ip));
 
+    // Use real ICMP if virtio-net is available
+    let have_real_net = crate::drivers::virtio_net::get_mac().is_some();
+
     let mut min = u64::MAX;
     let mut max = 0u64;
     let mut total = 0u64;
+    let mut received = 0usize;
     for seq in 0..count {
-        let (_ok, latency) = net::ping(&ip);
-        if latency < min { min = latency; }
-        if latency > max { max = latency; }
-        total += latency;
-        outln!(output, "64 bytes from {} ({}): icmp_seq={} ttl=64 time={}.{} ms",
-            host, net::format_ip(&ip), seq + 1, latency / 10, latency % 10);
+        if have_real_net {
+            // Real ICMP ping
+            let start = hal::timer::uptime_ms();
+            crate::net::icmp::send_echo_request(&ip, seq as u16, 56);
+            // Wait up to 2 seconds for reply
+            let mut got = false;
+            while hal::timer::uptime_ms() - start < 2000 {
+                if let Some((_src, rseq, _dlen)) = crate::net::icmp::poll_reply() {
+                    if rseq == seq as u16 {
+                        let latency = hal::timer::uptime_ms() - start;
+                        if latency < min { min = latency; }
+                        if latency > max { max = latency; }
+                        total += latency;
+                        received += 1;
+                        outln!(output, "64 bytes from {} ({}): icmp_seq={} ttl=64 time={} ms",
+                            host, net::format_ip(&ip), seq + 1, latency);
+                        got = true;
+                        break;
+                    }
+                }
+                crate::process::scheduler::yield_thread();
+            }
+            if !got {
+                outln!(output, "Request timeout for icmp_seq {}", seq + 1);
+            }
+        } else {
+            // Simulated ping fallback
+            let (_ok, latency) = net::ping(&ip);
+            if latency < min { min = latency; }
+            if latency > max { max = latency; }
+            total += latency;
+            received += 1;
+            outln!(output, "64 bytes from {} ({}): icmp_seq={} ttl=64 time={}.{} ms",
+                host, net::format_ip(&ip), seq + 1, latency / 10, latency % 10);
+        }
         // Small delay between pings
         if seq + 1 < count {
-            let target = hal::timer::uptime_ms() + 200;
+            let target = hal::timer::uptime_ms() + 1000;
             while hal::timer::uptime_ms() < target {
-                core::hint::spin_loop();
+                crate::process::scheduler::yield_thread();
             }
         }
     }
     outln!(output, "");
     outln!(output, "--- {} ping statistics ---", host);
-    let avg = if count > 0 { total / count as u64 } else { 0 };
-    outln!(output, "{} packets transmitted, {} received, 0% packet loss",
-        count, count);
-    outln!(output, "rtt min/avg/max = {}.{}/{}.{}/{}.{} ms",
-        min / 10, min % 10, avg / 10, avg % 10, max / 10, max % 10);
+    let loss = if count > 0 { ((count - received) * 100) / count } else { 0 };
+    let avg = if received > 0 { total / received as u64 } else { 0 };
+    outln!(output, "{} packets transmitted, {} received, {}% packet loss",
+        count, received, loss);
+    if received > 0 {
+        outln!(output, "rtt min/avg/max = {}/{}/{} ms", min, avg, max);
+    }
 }
 
 fn cmd_ifconfig(output: &mut Option<&mut String>) {
@@ -2386,6 +2426,9 @@ fn cmd_mount(output: &mut Option<&mut String>) {
     outln!(output, "ramfs on / type ramfs (rw)");
     outln!(output, "devfs on /dev type devfs (rw)");
     outln!(output, "procfs on /proc type procfs (ro)");
+    if crate::drivers::virtio_blk::is_available() {
+        outln!(output, "/dev/vda on /mnt/disk type fat32 (rw)");
+    }
 }
 
 // ─── Logging Commands ────────────────────────────────────────────────────
@@ -2686,8 +2729,13 @@ fn cmd_fdisk(args: &[&str], output: &mut Option<&mut String>) {
 
 fn cmd_lsblk(output: &mut Option<&mut String>) {
     outln!(output, "{}NAME   MAJ:MIN RM   SIZE RO TYPE MOUNTPOINTS{}", BOLD, RESET);
-    outln!(output, "sda      8:0    0   128M  0 disk ");
-    outln!(output, "└─sda1   8:1    0   122M  0 part /");
+    if crate::drivers::virtio_blk::is_available() {
+        let cap = crate::drivers::virtio_blk::capacity();
+        let size_mb = cap * 512 / 1024 / 1024;
+        outln!(output, "vda    254:0    0  {:>4}M  0 disk /mnt/disk", size_mb);
+    } else {
+        outln!(output, "(no block devices)");
+    }
 }
 
 // ─── Process Monitor ────────────────────────────────────────────────────
@@ -3826,36 +3874,61 @@ fn cmd_readelf(shell: &Shell, args: &[&str], output: &mut Option<&mut String>) {
 /// Run/execute an ELF binary
 fn cmd_run(shell: &Shell, args: &[&str], output: &mut Option<&mut String>) {
     if args.is_empty() {
-        outln!(output, "Usage: run <elf-file>");
+        outln!(output, "Usage: run <elf-file> [&]");
         return;
     }
 
-    let path = resolve_path(&shell.cwd, args[0]);
+    // Check for background '&' suffix
+    let background = args.last() == Some(&"&") || args[0].ends_with('&');
+    let file_arg = if background && args.len() > 1 && args.last() == Some(&"&") {
+        args[0]
+    } else if background && args[0].ends_with('&') {
+        &args[0][..args[0].len()-1]
+    } else {
+        args[0]
+    };
+
+    let path = resolve_path(&shell.cwd, file_arg);
     
     let data = match read_file_bytes(&path) {
         Some(d) => d,
         None => {
-            outln!(output, "run: cannot read '{}'", args[0]);
+            outln!(output, "run: cannot read '{}'", file_arg);
             return;
         }
     };
 
     if !fs::elf::is_elf(&data) {
-        outln!(output, "run: '{}' is not an ELF file", args[0]);
+        outln!(output, "run: '{}' is not an ELF file", file_arg);
         return;
     }
 
     // Parse and describe the ELF
     outln!(output, "Loading: {}", fs::elf::describe_elf(&data));
 
-    // Spawn as user-mode process (ELF loading happens inside)
-    let name = args[0].rsplit('/').next().unwrap_or(args[0]);
-    match crate::process::spawn_user_process(name, &data, 8) {
+    // Spawn as user-mode process
+    let name = file_arg.rsplit('/').next().unwrap_or(file_arg);
+    // Collect program arguments (program name + remaining args)
+    let mut prog_args: Vec<&str> = Vec::new();
+    prog_args.push(name);
+    for &a in args.iter().skip(1) {
+        if a == "&" { continue; }
+        prog_args.push(a);
+    }
+    match crate::process::spawn_user_process(name, &data, 8, &prog_args) {
         Some(pid) => {
-            outln!(output, "  Spawned process PID {} (user-mode)", pid);
-            outln!(output, "");
-            outln!(output, "Note: Process will run when scheduled.");
-            outln!(output, "Use 'ps' to see running processes.");
+            if background {
+                outln!(output, "  [bg] PID {} started", pid);
+            } else {
+                outln!(output, "  Spawned process PID {} (user-mode)", pid);
+                // Set as foreground and wait
+                crate::hal::console::set_foreground_pid(pid);
+                let exit_code = crate::process::waitpid(pid);
+                crate::hal::console::set_foreground_pid(0);
+                if exit_code != 0 {
+                    outln!(output, "  Process exited with code {}", exit_code);
+                }
+            }
         }
         None => {
             outln!(output, "run: failed to load or spawn process");

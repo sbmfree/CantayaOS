@@ -3,7 +3,22 @@
 //! Provides both output (write) and input (read) via the PL011 UART.
 
 use core::fmt::{self, Write};
+use core::sync::atomic::{AtomicU32, Ordering};
 use crate::sync::IrqMutex;
+
+/// PID of the foreground user-mode process (0 = none).
+/// When Ctrl+C is received via UART IRQ, this process is terminated.
+static FOREGROUND_PID: AtomicU32 = AtomicU32::new(0);
+
+/// Set the foreground process PID (0 to clear).
+pub fn set_foreground_pid(pid: u32) {
+    FOREGROUND_PID.store(pid, Ordering::SeqCst);
+}
+
+/// Get the foreground process PID.
+pub fn foreground_pid() -> u32 {
+    FOREGROUND_PID.load(Ordering::SeqCst)
+}
 
 /// PL011 UART base address (QEMU virt machine)
 const UART_BASE: usize = 0x0900_0000;
@@ -144,6 +159,16 @@ pub fn handle_uart_irq() {
     // Read all available characters
     while let Some(byte) = console.read_byte_nonblocking() {
         drop(console);
+        // Ctrl+C: if a foreground process is running, terminate it
+        if byte == 0x03 {
+            let fg = FOREGROUND_PID.load(Ordering::SeqCst);
+            if fg != 0 {
+                crate::kprintln!("^C");
+                crate::process::terminate_process(fg, -2); // -2 = killed by signal
+                FOREGROUND_PID.store(0, Ordering::SeqCst);
+                return;
+            }
+        }
         INPUT.lock().push(byte);
         return; // Only read one at a time to avoid re-locking issues
     }

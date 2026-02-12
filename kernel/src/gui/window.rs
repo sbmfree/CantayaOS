@@ -3,9 +3,11 @@
 extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
+use alloc::collections::VecDeque;
 
 use crate::drivers::framebuffer::{self, SCREEN_WIDTH, SCREEN_HEIGHT, FONT_HEIGHT};
 use crate::gui::event::GuiEvent;
+use crate::sync::IrqMutex;
 
 // ---------------------------------------------------------------------------
 // Colours (XRGB8888)
@@ -37,6 +39,14 @@ pub struct Window {
     pub focused: bool,
     /// Optional text content to display in the client area
     pub content: String,
+    /// Optional XRGB8888 pixel buffer for the client area
+    pub pixel_buffer: Option<Vec<u32>>,
+    pub pixel_width: u32,
+    pub pixel_height: u32,
+    /// PID of the process that owns this window (0 = kernel)
+    pub owner_pid: u32,
+    /// Event queue for userspace windows
+    pub event_queue: VecDeque<GuiEvent>,
 }
 
 impl Window {
@@ -112,15 +122,28 @@ impl Window {
         let client_y = y + TITLE_BAR_H as i32;
         fb.fill_rect(client_x, client_y, self.width, self.height, WIN_BG);
 
-        // Draw content text if any
-        if !self.content.is_empty() {
-            let mut tx = client_x + 8;
+        // Draw pixel buffer if present, otherwise draw text content
+        if let Some(ref pixels) = self.pixel_buffer {
+            let pw = self.pixel_width;
+            let ph = self.pixel_height;
+            let draw_w = pw.min(self.width);
+            let draw_h = ph.min(self.height);
+            for row in 0..draw_h {
+                for col in 0..draw_w {
+                    let idx = (row * pw + col) as usize;
+                    if idx < pixels.len() {
+                        fb.put_pixel((client_x + col as i32) as u32,
+                                     (client_y + row as i32) as u32, pixels[idx]);
+                    }
+                }
+            }
+        } else if !self.content.is_empty() {
+            let tx = client_x + 8;
             let mut ty = client_y + 8;
             for line in self.content.split('\n') {
                 if ty + FONT_HEIGHT as i32 > client_y + self.height as i32 { break; }
                 fb.draw_string_transparent(tx, ty, line, 0xFF222222);
                 ty += FONT_HEIGHT as i32 + 2;
-                tx = client_x + 8;
             }
         }
     }
@@ -141,6 +164,9 @@ struct DragState {
     offset_y: i32,
 }
 
+/// Global window manager instance.
+pub static WM: IrqMutex<WindowManager> = IrqMutex::new(WindowManager::new());
+
 impl WindowManager {
     pub const fn new() -> Self {
         WindowManager {
@@ -152,6 +178,11 @@ impl WindowManager {
 
     /// Create a new window. Returns its id.
     pub fn create_window(&mut self, title: &str, x: i32, y: i32, w: u32, h: u32) -> u32 {
+        self.create_window_owned(title, x, y, w, h, 0)
+    }
+
+    /// Create a window owned by a specific process.
+    pub fn create_window_owned(&mut self, title: &str, x: i32, y: i32, w: u32, h: u32, owner_pid: u32) -> u32 {
         let id = self.next_id;
         self.next_id += 1;
         self.windows.push(Window {
@@ -163,6 +194,11 @@ impl WindowManager {
             visible: true,
             focused: true,
             content: String::new(),
+            pixel_buffer: None,
+            pixel_width: 0,
+            pixel_height: 0,
+            owner_pid,
+            event_queue: VecDeque::new(),
         });
         // Focus this window
         self.focus(id);
@@ -173,6 +209,15 @@ impl WindowManager {
     pub fn set_content(&mut self, id: u32, text: &str) {
         if let Some(win) = self.windows.iter_mut().find(|w| w.id == id) {
             win.content = String::from(text);
+        }
+    }
+
+    /// Set a pixel buffer for a window's client area.
+    pub fn set_pixel_buffer(&mut self, id: u32, pixels: Vec<u32>, width: u32, height: u32) {
+        if let Some(win) = self.windows.iter_mut().find(|w| w.id == id) {
+            win.pixel_buffer = Some(pixels);
+            win.pixel_width = width;
+            win.pixel_height = height;
         }
     }
 
@@ -272,5 +317,19 @@ impl WindowManager {
     /// Number of open windows.
     pub fn count(&self) -> usize {
         self.windows.len()
+    }
+
+    /// Close all windows owned by a specific process.
+    pub fn close_windows_for_pid(&mut self, pid: u32) {
+        self.windows.retain(|w| w.owner_pid != pid);
+    }
+
+    /// Poll an event from a window's event queue.
+    pub fn poll_event(&mut self, win_id: u32) -> Option<GuiEvent> {
+        if let Some(win) = self.windows.iter_mut().find(|w| w.id == win_id) {
+            win.event_queue.pop_front()
+        } else {
+            None
+        }
     }
 }

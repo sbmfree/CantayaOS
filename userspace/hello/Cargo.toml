@@ -1,0 +1,12 @@
+[package]
+name = "hello"
+version = "0.1.0"
+edition = "2021"
+description = "Simple hello world userspace program for CantayaOS"
+
+[dependencies]
+libcantaya = { path = "../libcantaya" }
+
+[[bin]]
+name = "hello"
+path = "src/main.rs"

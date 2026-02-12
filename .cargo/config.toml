@@ -7,5 +7,5 @@ build-std = ["core", "alloc", "compiler_builtins"]
 build-std-features = ["compiler-builtins-mem"]
 json-target-spec = true
 
-[target.'cfg(target_arch = "aarch64")']
+[target.aarch64-cantaya]
 rustflags = ["-C", "link-arg=-T", "-C", "link-arg=kernel/linker.ld"]

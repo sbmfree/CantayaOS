@@ -4,6 +4,7 @@
 set -e
 
 TARGET="aarch64-cantaya"
+USERSPACE_TARGET="aarch64-unknown-none"
 MODE="${1:-release}"
 
 echo "=== Building CantayaOS ==="
@@ -18,8 +19,39 @@ fi
 
 # Install required components
 rustup component add rust-src llvm-tools-preview 2>/dev/null || true
+rustup target add $USERSPACE_TARGET 2>/dev/null || true
 
-# Build from workspace root (config in .cargo/config.toml)
+# -----------------------------------------------------------------------
+# Step 1: Build userspace programs
+# -----------------------------------------------------------------------
+echo "Building userspace programs..."
+
+pushd userspace > /dev/null
+
+if [ "$MODE" == "release" ]; then
+    cargo build --release -Z build-std=core,compiler_builtins --target $USERSPACE_TARGET 2>&1
+    USPACE_DIR="target/$USERSPACE_TARGET/release"
+else
+    cargo build -Z build-std=core,compiler_builtins --target $USERSPACE_TARGET 2>&1
+    USPACE_DIR="target/$USERSPACE_TARGET/debug"
+fi
+
+echo "Userspace binaries:"
+for BIN in cantaya_init hello shell_hello echo cat draw http_get; do
+    if [ -f "$USPACE_DIR/$BIN" ]; then
+        SIZE=$(stat -c%s "$USPACE_DIR/$BIN" 2>/dev/null || stat -f%z "$USPACE_DIR/$BIN" 2>/dev/null || echo "?")
+        echo "  $BIN: $SIZE bytes"
+    else
+        echo "  WARNING: $BIN not found!"
+    fi
+done
+
+popd > /dev/null
+echo ""
+
+# -----------------------------------------------------------------------
+# Step 2: Build kernel (embeds userspace ELFs via include_bytes!)
+# -----------------------------------------------------------------------
 echo "Building kernel..."
 
 if [ "$MODE" == "release" ]; then
@@ -35,7 +67,9 @@ if [ ! -f "$KERNEL_ELF" ]; then
     exit 1
 fi
 
-# Create flat binary from ELF
+# -----------------------------------------------------------------------
+# Step 3: Create flat binary from ELF
+# -----------------------------------------------------------------------
 echo ""
 echo "Creating kernel binary image..."
 

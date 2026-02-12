@@ -12,7 +12,7 @@ pub mod window;
 
 use crate::drivers::framebuffer;
 use event::MouseState;
-use window::WindowManager;
+use window::WM;
 
 extern crate alloc;
 
@@ -35,17 +35,18 @@ fn compositor_entry() -> ! {
     crate::process::scheduler::sleep_current_ms(100);
 
     let mut mouse = MouseState::new();
-    let mut wm = WindowManager::new();
 
-    // Create a welcome window
-    let w1 = wm.create_window("Welcome", 150, 100, 400, 200);
-    wm.set_content(w1, "Welcome to CantayaOS!\n\nThis is a graphical desktop.\nDrag windows by their title bar.\nClick X to close.\n\nEnjoy!");
+    // Create welcome windows via global WM
+    {
+        let mut wm = WM.lock();
+        let w1 = wm.create_window("Welcome", 150, 100, 400, 200);
+        wm.set_content(w1, "Welcome to CantayaOS!\n\nThis is a graphical desktop.\nDrag windows by their title bar.\nClick X to close.\n\nEnjoy!");
 
-    // Create a system info window
-    let w2 = wm.create_window("System Info", 300, 200, 350, 150);
-    let ram_mb = crate::mm::physical::total_memory() / 1024 / 1024;
-    let info = alloc::format!("CantayaOS v0.1\nArch: AArch64 (Cortex-A72)\nRAM: {} MB\nDisplay: 800x600 XRGB8888\nInput: virtio-input", ram_mb);
-    wm.set_content(w2, &info);
+        let w2 = wm.create_window("System Info", 300, 200, 350, 150);
+        let ram_mb = crate::mm::physical::total_memory() / 1024 / 1024;
+        let info = alloc::format!("CantayaOS v0.1\nArch: AArch64 (Cortex-A72)\nRAM: {} MB\nDisplay: 800x600 XRGB8888\nInput: virtio-input", ram_mb);
+        wm.set_content(w2, &info);
+    }
 
     // Compositor loop
     loop {
@@ -53,13 +54,17 @@ fn compositor_entry() -> ! {
         let events = event::drain_input(&mut mouse);
 
         // 2. Dispatch to window manager
-        for ev in &events {
-            wm.handle_event(ev);
+        {
+            let mut wm = WM.lock();
+            for ev in &events {
+                wm.handle_event(ev);
+            }
         }
 
         // 3. Redraw everything into back buffer
         {
             let mut fb = framebuffer::FB.lock();
+            let wm = WM.lock();
 
             // Background
             desktop::draw_background(&mut fb);

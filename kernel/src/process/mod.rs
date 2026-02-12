@@ -40,6 +40,21 @@ impl ProcessState {
     }
 }
 
+/// File descriptor kinds
+pub enum FdKind {
+    /// stdin / stdout / stderr — backed by UART console
+    Console,
+    /// A real VFS file handle
+    File(crate::fs::vfs::FileHandle),
+    /// A TCP socket
+    TcpSocket(crate::net::tcp::TcpKey),
+}
+
+/// Per-process file descriptor
+pub struct FileDescriptor {
+    pub kind: FdKind,
+}
+
 /// Process Control Block (EPROCESS-like)
 pub struct Process {
     pub pid: Pid,
@@ -47,7 +62,10 @@ pub struct Process {
     pub state: ProcessState,
     pub threads: Vec<Tid>,
     pub page_directory: usize,
-    pub handle_table: BTreeMap<u32, Handle>,
+    pub next_fd: u32,
+    pub fd_table: BTreeMap<u32, FileDescriptor>,
+    pub exit_code: i32,
+    pub wait_queue: Vec<Tid>,
 }
 
 impl Process {
@@ -88,22 +106,7 @@ impl ThreadContext {
     }
 }
 
-/// Kernel handle
-pub struct Handle {
-    pub object_type: ObjectType,
-    pub access: u32,
-    pub object_ptr: usize,
-}
 
-#[derive(Clone, Copy, Debug)]
-pub enum ObjectType {
-    Process,
-    Thread,
-    File,
-    Event,
-    Mutex,
-    Section,
-}
 
 static PROCESS_TABLE: IrqMutex<BTreeMap<Pid, Process>> = IrqMutex::new(BTreeMap::new());
 pub static THREAD_TABLE: IrqMutex<BTreeMap<Tid, Thread>> = IrqMutex::new(BTreeMap::new());
@@ -120,13 +123,21 @@ pub fn init() {
 }
 
 fn create_system_process() {
+    let mut fd_table = BTreeMap::new();
+    fd_table.insert(0, FileDescriptor { kind: FdKind::Console }); // stdin
+    fd_table.insert(1, FileDescriptor { kind: FdKind::Console }); // stdout
+    fd_table.insert(2, FileDescriptor { kind: FdKind::Console }); // stderr
+
     let mut process = Process {
         pid: 0,
         name: [0; 32],
         state: ProcessState::Running,
         threads: Vec::new(),
         page_directory: crate::mm::virtual_mem::kernel_pgd_phys(),
-        handle_table: BTreeMap::new(),
+        next_fd: 3,
+        fd_table,
+        exit_code: 0,
+        wait_queue: Vec::new(),
     };
     
     let name = b"System";
@@ -155,13 +166,21 @@ pub fn create_process(name: &str) -> Option<Pid> {
     let pid = *next_pid;
     *next_pid += 1;
     
+    let mut fd_table = BTreeMap::new();
+    fd_table.insert(0, FileDescriptor { kind: FdKind::Console }); // stdin
+    fd_table.insert(1, FileDescriptor { kind: FdKind::Console }); // stdout
+    fd_table.insert(2, FileDescriptor { kind: FdKind::Console }); // stderr
+
     let mut process = Process {
         pid,
         name: [0; 32],
         state: ProcessState::Created,
         threads: Vec::new(),
         page_directory: crate::mm::virtual_mem::clone_kernel_tables(),
-        handle_table: BTreeMap::new(),
+        next_fd: 3,
+        fd_table,
+        exit_code: 0,
+        wait_queue: Vec::new(),
     };
     
     let name_bytes = name.as_bytes();
@@ -205,18 +224,35 @@ pub fn create_thread(pid: Pid, entry_point: usize) -> Option<Tid> {
 }
 
 /// Terminate a process and clean up its resources
-pub fn terminate_process(pid: Pid, _exit_code: i32) {
+pub fn terminate_process(pid: Pid, exit_code: i32) {
     let thread_ids: Vec<Tid>;
+    let waiters: Vec<Tid>;
     
-    // Mark process as terminated and collect thread IDs
+    // Mark process as terminated, store exit code, collect thread IDs + waiters
     {
         let mut procs = PROCESS_TABLE.lock();
         if let Some(process) = procs.get_mut(&pid) {
             process.state = ProcessState::Terminated;
+            process.exit_code = exit_code;
             thread_ids = process.threads.clone();
+            waiters = core::mem::take(&mut process.wait_queue);
+            // Close all file descriptors
+            let fds: Vec<u32> = process.fd_table.keys().cloned().collect();
+            for fd in fds {
+                if let Some(desc) = process.fd_table.remove(&fd) {
+                    if let FdKind::File(handle) = desc.kind {
+                        crate::fs::close(handle);
+                    }
+                }
+            }
         } else {
             return;
         }
+    }
+    
+    // Wake all threads waiting in waitpid() for this process
+    for tid in waiters {
+        scheduler::ready(tid);
     }
     
     // Clean up each thread
@@ -244,6 +280,9 @@ pub fn terminate_process(pid: Pid, _exit_code: i32) {
             crate::mm::virtual_mem::free_process_page_tables(pgd);
         }
     }
+
+    // Close any GUI windows owned by this process
+    crate::gui::window::WM.lock().close_windows_for_pid(pid);
 }
 
 /// Process info snapshot for listing
@@ -331,12 +370,12 @@ pub fn spawn_kernel_task(name: &str, entry: fn() -> !, priority: u8) -> Option<P
 /// Spawn a user-mode process from raw ELF data
 /// Creates the process (with per-process page tables), loads the ELF into
 /// the process's address space, sets up a user stack, and schedules the thread.
-pub fn spawn_user_process(name: &str, elf_data: &[u8], priority: u8) -> Option<Pid> {
+pub fn spawn_user_process(name: &str, elf_data: &[u8], priority: u8, args: &[&str]) -> Option<Pid> {
     let pid = create_process(name)?;
     let pgd = get_process_pgd(pid);
     
     // Load ELF into the process's own page tables
-    let user_program = match crate::fs::elf::load_elf_for_user(elf_data, pgd) {
+    let user_program = match crate::fs::elf::load_elf_for_user(elf_data, pgd, args) {
         Ok(prog) => prog,
         Err(_) => return None,
     };
@@ -354,7 +393,13 @@ pub fn spawn_user_process(name: &str, elf_data: &[u8], priority: u8) -> Option<P
         pid,
         state: ProcessState::Ready,
         priority,
-        context: ThreadContext::for_user_entry(user_program.entry_point, user_program.stack_top, kernel_stack),
+        context: ThreadContext::for_user_entry(
+            user_program.entry_point,
+            user_program.stack_top,
+            kernel_stack,
+            user_program.argc,
+            user_program.argv,
+        ),
         kernel_stack,
         user_stack: user_program.stack_top,
     };
@@ -386,4 +431,66 @@ pub fn attach_thread_to_process(pid: Pid, tid: Tid) {
         process.threads.push(tid);
         process.state = ProcessState::Ready;
     }
+}
+
+// ---------------------------------------------------------------------------
+// File descriptor helpers
+// ---------------------------------------------------------------------------
+
+/// Allocate a new FD in the given process's FD table, returning the fd number.
+pub fn process_alloc_fd(pid: Pid, kind: FdKind) -> Option<u32> {
+    let mut procs = PROCESS_TABLE.lock();
+    let process = procs.get_mut(&pid)?;
+    let fd = process.next_fd;
+    process.next_fd += 1;
+    process.fd_table.insert(fd, FileDescriptor { kind });
+    Some(fd)
+}
+
+/// Remove and return a file descriptor from a process's FD table.
+pub fn process_remove_fd(pid: Pid, fd: u32) -> Option<FileDescriptor> {
+    let mut procs = PROCESS_TABLE.lock();
+    let process = procs.get_mut(&pid)?;
+    process.fd_table.remove(&fd)
+}
+
+/// Get the PID of the current thread (caller must not hold THREAD_TABLE or SCHEDULER locks).
+pub fn current_pid() -> Option<Pid> {
+    let tid = scheduler::current_tid()?;
+    let threads = THREAD_TABLE.lock();
+    threads.get(&tid).map(|t| t.pid)
+}
+
+// ---------------------------------------------------------------------------
+// waitpid — block until target process terminates
+// ---------------------------------------------------------------------------
+
+/// Block the calling thread until the given process terminates.
+/// Returns the exit code of the terminated process.
+pub fn waitpid(target_pid: Pid) -> i32 {
+    // Check if already terminated; if not, add ourselves to its wait queue
+    {
+        let mut procs = PROCESS_TABLE.lock();
+        if let Some(target) = procs.get_mut(&target_pid) {
+            if target.state == ProcessState::Terminated {
+                return target.exit_code;
+            }
+            // Not yet terminated — add current thread to wait queue
+            if let Some(tid) = scheduler::current_tid() {
+                target.wait_queue.push(tid);
+            }
+        } else {
+            return -1; // process not found
+        }
+    }
+    // Block until woken by terminate_process
+    scheduler::block_current();
+    // Re-read exit code
+    {
+        let procs = PROCESS_TABLE.lock();
+        if let Some(target) = procs.get(&target_pid) {
+            return target.exit_code;
+        }
+    }
+    -1
 }

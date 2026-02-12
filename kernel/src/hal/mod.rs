@@ -5,6 +5,7 @@
 pub mod console;
 pub mod interrupts;
 pub mod timer;
+pub mod rtc;
 pub mod klog;
 pub mod syslog;
 pub mod services;

@@ -23,6 +23,7 @@ pub mod ipc;
 pub mod hal;
 pub mod drivers;
 pub mod fs;
+pub mod net;
 pub mod shell;
 pub mod init;
 pub mod gui;
@@ -118,6 +119,22 @@ pub extern "C" fn kernel_main() -> ! {
     drivers::virtio_input::init();
     boot_ok(GREEN, "INP ", "virtio-input keyboard + tablet ready");
 
+    // ---- Phase 7c: Block device ----
+    boot_status(YELLOW, "BLK ", "Probing virtio-blk devices...");
+    drivers::virtio_blk::probe_and_init();
+    if drivers::virtio_blk::is_available() {
+        let cap = drivers::virtio_blk::capacity();
+        boot_ok(GREEN, "BLK ", &alloc::format!("virtio-blk ready ({} sectors, {} MB)",
+            cap, cap * 512 / 1024 / 1024));
+    } else {
+        boot_status(_RED, "BLK ", "No block device found");
+    }
+
+    // ---- Phase 7d: Networking ----
+    boot_status(YELLOW, "NET ", "Probing virtio-net devices...");
+    drivers::virtio_net::probe_and_init();
+    boot_ok(GREEN, "NET ", "Network stack ready");
+
     // ---- Phase 8: Service Manager ----
     boot_status(YELLOW, "SVC ", "Starting system services...");
     hal::services::init();
@@ -131,6 +148,7 @@ pub extern "C" fn kernel_main() -> ! {
     hal::syslog::log(hal::syslog::LogLevel::Info, hal::syslog::Facility::Kernel, "fs: ramfs mounted on / (rw)");
     hal::syslog::log(hal::syslog::LogLevel::Info, hal::syslog::Facility::Kernel, "fs: procfs mounted on /proc (ro)");
     hal::syslog::log(hal::syslog::LogLevel::Info, hal::syslog::Facility::Kernel, "fs: devfs mounted on /dev (rw)");
+    hal::syslog::log(hal::syslog::LogLevel::Info, hal::syslog::Facility::Kernel, "fs: fat32 mounted on /mnt/disk (rw)");
     hal::syslog::log(hal::syslog::LogLevel::Notice, hal::syslog::Facility::Daemon, "sshd: listening on 0.0.0.0:22");
     hal::syslog::log(hal::syslog::LogLevel::Notice, hal::syslog::Facility::Daemon, "dhcpcd: bound 10.0.2.15 lease 86400s");
 

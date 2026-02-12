@@ -424,6 +424,8 @@ pub struct UserProgram {
     pub base: usize,
     pub end: usize,
     pub stack_top: usize,
+    pub argc: u64,
+    pub argv: u64,
 }
 
 /// User stack size (64KB)
@@ -433,9 +435,9 @@ pub const USER_STACK_SIZE: usize = 64 * 1024;
 pub const USER_STACK_BASE: usize = 0x7FFF_FFF0_0000;
 
 /// Load ELF and prepare for user-mode execution
-/// Allocates pages, copies segments, sets up user stack
+/// Allocates pages, copies segments, sets up user stack with argc/argv.
 /// `pgd_phys` is the physical address of the process's page table root
-pub fn load_elf_for_user(data: &[u8], pgd_phys: usize) -> Result<UserProgram, ElfError> {
+pub fn load_elf_for_user(data: &[u8], pgd_phys: usize, args: &[&str]) -> Result<UserProgram, ElfError> {
     use crate::mm::physical::{alloc_frame, alloc_contiguous_frames};
     use crate::mm::virtual_mem::map_page_in;
     use crate::arch::aarch64::mmu::{PAGE_SIZE, PageFlags};
@@ -551,25 +553,81 @@ pub fn load_elf_for_user(data: &[u8], pgd_phys: usize) -> Result<UserProgram, El
         | PageFlags::INNER_SHAREABLE | PageFlags::USER | PageFlags::EXECUTE_NEVER
         | PageFlags::ATTR_NORMAL_WB;
     
-    if let Some(stack_phys) = alloc_contiguous_frames(stack_pages) {
-        for i in 0..stack_pages {
-            let vaddr = stack_base + i * PAGE_SIZE;
-            let paddr = stack_phys + i * PAGE_SIZE;
-            // Zero the physical frame directly (identity-mapped)
-            unsafe {
-                core::ptr::write_bytes(paddr as *mut u8, 0, PAGE_SIZE);
-            }
-            map_page_in(pgd_phys, vaddr, paddr, stack_flags);
+    let stack_phys = match alloc_contiguous_frames(stack_pages) {
+        Some(p) => p,
+        None => return Err(ElfError::OutOfBounds),
+    };
+    for i in 0..stack_pages {
+        let vaddr = stack_base + i * PAGE_SIZE;
+        let paddr = stack_phys + i * PAGE_SIZE;
+        unsafe {
+            core::ptr::write_bytes(paddr as *mut u8, 0, PAGE_SIZE);
         }
-    } else {
-        return Err(ElfError::OutOfBounds); // Out of memory
+        map_page_in(pgd_phys, vaddr, paddr, stack_flags);
     }
-    
+
+    // --- Write argc/argv onto the user stack ---
+    // Layout (growing downward from USER_STACK_BASE):
+    //   <string data area>   (arg strings, null-terminated)
+    //   <8-byte align pad>
+    //   NULL                 (argv[argc])
+    //   argv[argc-1] ptr     (user VA pointer to string)
+    //   ...
+    //   argv[0] ptr
+    //   argc (u64)
+    //   <- SP points here
+    let argc = args.len();
+
+    // We write to the *physical* frames (identity-mapped in kernel VA).
+    // User VA = stack_base + offset => phys = stack_phys + offset
+    let stack_top_phys = stack_phys + USER_STACK_SIZE;
+
+    // 1. Write string data from the top downward
+    let mut cursor = stack_top_phys; // physical write cursor, descends
+    let mut arg_user_ptrs: alloc::vec::Vec<u64> = alloc::vec::Vec::new();
+    for arg in args.iter() {
+        let bytes = arg.as_bytes();
+        let needed = bytes.len() + 1; // include NUL
+        cursor -= needed;
+        unsafe {
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), cursor as *mut u8, bytes.len());
+            *((cursor + bytes.len()) as *mut u8) = 0; // NUL terminator
+        }
+        // Corresponding user-VA pointer for this string
+        let user_va = USER_STACK_BASE - (stack_top_phys - cursor);
+        arg_user_ptrs.push(user_va as u64);
+    }
+
+    // 2. Align cursor down to 8 bytes
+    cursor &= !7;
+
+    // 3. Write NULL terminator for argv array
+    cursor -= 8;
+    unsafe { *(cursor as *mut u64) = 0; }
+
+    // 4. Write argv pointers in reverse order (argv[argc-1] .. argv[0])
+    for i in (0..argc).rev() {
+        cursor -= 8;
+        unsafe { *(cursor as *mut u64) = arg_user_ptrs[i]; }
+    }
+    let argv_user_va = USER_STACK_BASE - (stack_top_phys - cursor);
+
+    // 5. Write argc
+    cursor -= 8;
+    unsafe { *(cursor as *mut u64) = argc as u64; }
+
+    // Align to 16 bytes (AArch64 SP alignment requirement)
+    cursor &= !15;
+
+    let final_sp = USER_STACK_BASE - (stack_top_phys - cursor);
+
     Ok(UserProgram {
         entry_point: info.entry_point as usize,
         base: base_addr,
         end: end_addr,
-        stack_top: USER_STACK_BASE - 16, // Aligned, minus 16 for padding
+        stack_top: final_sp,
+        argc: argc as u64,
+        argv: argv_user_va as u64,
     })
 }
 

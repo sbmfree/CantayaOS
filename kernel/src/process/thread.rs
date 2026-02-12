@@ -18,12 +18,14 @@ impl ThreadContext {
     /// Uses a trampoline so the thread can be first-scheduled either
     /// preemptively (via timer IRQ eret) or cooperatively (via context_switch ret).
     /// `kernel_stack` is the top of the thread's kernel-mode stack.
-    pub fn for_user_entry(entry_point: usize, user_stack: usize, kernel_stack: usize) -> Self {
+    pub fn for_user_entry(entry_point: usize, user_stack: usize, kernel_stack: usize, argc: u64, argv: u64) -> Self {
         let mut ctx = ThreadContext::new();
         // x19-x21 carry arguments for the trampoline
         ctx.regs[19] = entry_point as u64;        // → ELR_EL1
         ctx.regs[20] = user_stack as u64;          // → SP_EL0
         ctx.regs[21] = 0;                          // → SPSR_EL1 (EL0t)
+        ctx.regs[22] = argc;                       // → x0 (argc)
+        ctx.regs[23] = argv;                       // → x1 (argv)
         // x30 = trampoline (used by cooperative context_switch `ret`)
         ctx.regs[30] = return_to_user_trampoline as *const () as usize as u64;
         // SP = kernel stack (used by both paths)
@@ -122,9 +124,9 @@ pub unsafe extern "C" fn return_to_user_trampoline() {
         "msr elr_el1, x19",
         "msr spsr_el1, x21",
         "msr sp_el0, x20",
-        // Zero general-purpose regs visible to user space
-        "mov x0, #0",
-        "mov x1, #0",
+        // Pass argc and argv to user space
+        "mov x0, x22",
+        "mov x1, x23",
         "mov x2, #0",
         "mov x3, #0",
         "mov x4, #0",

@@ -37,7 +37,7 @@ pub fn init() {
     heap::init();
 }
 
-/// Handle page fault
-pub fn handle_page_fault(address: u64) {
-    virtual_mem::handle_fault(address);
+/// Handle page fault. Returns `true` if resolved, `false` if unresolvable.
+pub fn handle_page_fault(address: u64) -> bool {
+    virtual_mem::handle_fault(address)
 }
