@@ -5,8 +5,8 @@
 use spin::Mutex;
 use crate::arch::aarch64::mmu::PAGE_SIZE;
 
-/// Maximum physical memory (1GB for now)
-const MAX_MEMORY: usize = 1024 * 1024 * 1024;
+/// Maximum physical memory (2GB)
+const MAX_MEMORY: usize = 2 * 1024 * 1024 * 1024;
 const MAX_PAGES: usize = MAX_MEMORY / PAGE_SIZE;
 const BITMAP_SIZE: usize = MAX_PAGES / 64;
 
@@ -127,8 +127,8 @@ impl PhysicalAllocator {
 pub fn init() {
     let mut alloc = ALLOCATOR.lock();
     
-    // 128MB RAM starting at 0x4000_0000 (QEMU virt)
-    let ram_size = 128 * 1024 * 1024;
+    // 2GB RAM starting at 0x4000_0000 (QEMU virt)
+    let ram_size = 2 * 1024 * 1024 * 1024;
     
     alloc.total_pages = ram_size / PAGE_SIZE;
     alloc.free_pages = alloc.total_pages;
@@ -167,4 +167,9 @@ pub fn free_frame(addr: usize) {
 /// Get free memory in bytes
 pub fn free_memory() -> usize {
     ALLOCATOR.lock().free_pages * PAGE_SIZE
+}
+
+/// Get total memory in bytes
+pub fn total_memory() -> usize {
+    ALLOCATOR.lock().total_pages * PAGE_SIZE
 }

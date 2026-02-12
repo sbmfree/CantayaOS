@@ -256,10 +256,11 @@ fn setup_kernel_mappings() {
         }
     }
 
-    // Identity map RAM region (0x4000_0000 .. 0x4200_0000) = 32MB
-    // Covers kernel code/data, BSS, heap (4MB), and additional working memory
+    // Identity map initial RAM region (0x4000_0000 .. 0x4400_0000) = 64MB
+    // Covers kernel code/data, BSS, heap (4MB), and working memory.
+    // The rest of the 2GB is demand-paged via the fault handler.
     let ram_start: usize = 0x4000_0000;
-    let ram_end: usize = 0x4200_0000; // 32MB
+    let ram_end: usize = 0x4400_0000; // 64MB
     addr = ram_start;
     while addr < ram_end {
         map_page_internal(
@@ -338,7 +339,7 @@ pub fn handle_fault(address: u64) {
     let addr = address as usize;
 
     // Check if this is a valid kernel address that just needs mapping
-    if addr >= 0x4000_0000 && addr < 0x4800_0000 {
+    if addr >= 0x4000_0000 && addr < 0xC000_0000 {
         // Demand-page kernel RAM: allocate a frame and map it
         if let Some(frame) = crate::mm::physical::alloc_frame() {
             map_page(

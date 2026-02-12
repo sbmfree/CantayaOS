@@ -2,7 +2,7 @@
 # Run CantayaOS in QEMU
 
 KERNEL="${1:-target/aarch64-cantaya/release/cantaya_kernel}"
-RAM="${2:-128M}"
+RAM="${2:-2G}"
 
 if [ ! -f "$KERNEL" ]; then
     echo "Kernel not found: $KERNEL"

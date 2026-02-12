@@ -100,7 +100,7 @@ fn generate_content(path: &str) -> Option<Vec<u8>> {
         }
         "meminfo" => {
             let free = crate::mm::physical::free_memory() as u64;
-            let total_kb = 128 * 1024u64;
+            let total_kb = crate::mm::physical::total_memory() as u64 / 1024;
             let free_kb = free / 1024;
             let used_kb = if total_kb > free_kb { total_kb - free_kb } else { 0 };
             let heap_kb = 4 * 1024u64;

@@ -14,6 +14,8 @@ use crate::drivers::framebuffer;
 use event::MouseState;
 use window::WindowManager;
 
+extern crate alloc;
+
 /// Initialise the GUI subsystem and spawn the compositor thread.
 pub fn init() {
     crate::kprintln!("[gui] starting compositor...");
@@ -41,7 +43,9 @@ fn compositor_entry() -> ! {
 
     // Create a system info window
     let w2 = wm.create_window("System Info", 300, 200, 350, 150);
-    wm.set_content(w2, "CantayaOS v0.1\nArch: AArch64 (Cortex-A72)\nRAM: 128 MB\nDisplay: 800x600 XRGB8888\nInput: virtio-input");
+    let ram_mb = crate::mm::physical::total_memory() / 1024 / 1024;
+    let info = alloc::format!("CantayaOS v0.1\nArch: AArch64 (Cortex-A72)\nRAM: {} MB\nDisplay: 800x600 XRGB8888\nInput: virtio-input", ram_mb);
+    wm.set_content(w2, &info);
 
     // Compositor loop
     loop {

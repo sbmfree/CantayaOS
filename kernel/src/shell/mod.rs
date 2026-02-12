@@ -1076,7 +1076,7 @@ fn cmd_ps(output: &mut Option<&mut String>) {
 
 fn cmd_mem(output: &mut Option<&mut String>) {
     let free = mm::physical::free_memory() as u64;
-    let total = 128u64 * 1024 * 1024;
+    let total = mm::physical::total_memory() as u64;
     let used = if total > free { total - free } else { 0 };
     let heap_size = 4u64 * 1024 * 1024;
     outln!(output, "");
@@ -1278,7 +1278,7 @@ fn cmd_echo(args: &[&str], output: &mut Option<&mut String>) {
 
 fn cmd_sysinfo(output: &mut Option<&mut String>) {
     let free = mm::physical::free_memory() as u64;
-    let total = 128u64 * 1024 * 1024;
+    let total = mm::physical::total_memory() as u64;
     let used = if total > free { total - free } else { 0 };
     outln!(output, "");
     outln!(output, "  {}{}CantayaOS System Information{}", BOLD, WHITE, RESET);
@@ -1609,7 +1609,7 @@ fn cmd_unset(shell: &mut Shell, args: &[&str], output: &mut Option<&mut String>)
 
 fn cmd_neofetch(output: &mut Option<&mut String>) {
     let free = mm::physical::free_memory() as u64;
-    let total = 128u64 * 1024 * 1024;
+    let total = mm::physical::total_memory() as u64;
     let used_mb = if total > free { (total - free) / 1024 / 1024 } else { 0 };
     let total_mb = total / 1024 / 1024;
     let up = hal::timer::uptime_ms() / 1000;
@@ -1947,7 +1947,7 @@ fn cmd_sort(shell: &Shell, args: &[&str], stdin: Option<&str>, output: &mut Opti
 
 fn cmd_df(output: &mut Option<&mut String>) {
     let free = mm::physical::free_memory() as u64;
-    let total = 128u64 * 1024 * 1024;
+    let total = mm::physical::total_memory() as u64;
     let used = if total > free { total - free } else { 0 };
     let pct = if total > 0 { used * 100 / total } else { 0 };
 
@@ -2695,7 +2695,7 @@ fn cmd_lsblk(output: &mut Option<&mut String>) {
 fn cmd_top(output: &mut Option<&mut String>) {
     let uptime_s = hal::timer::uptime_ms() / 1000;
     let free = mm::physical::free_memory() as u64;
-    let total = 128u64 * 1024 * 1024;
+    let total = mm::physical::total_memory() as u64;
     let used = if total > free { total - free } else { 0 };
     let pct = if total > 0 { used * 100 / total } else { 0 };
 
