@@ -59,7 +59,7 @@ pub fn draw(wm: &WindowManager, screen_w: u32, screen_h: u32) {
     if btn_count > 0 {
         let btn_w = (btn_area_w / btn_count as u32).min(160);
 
-        for (i, (_, title, focused)) in titles.iter().enumerate() {
+        for (i, (_, title, focused, minimized)) in titles.iter().enumerate() {
             let bx = btn_area_x + i as u32 * (btn_w + 2);
             let by = tb_y + 2;
             let bh = TASKBAR_HEIGHT - 4;
@@ -81,7 +81,9 @@ pub fn draw(wm: &WindowManager, screen_w: u32, screen_h: u32) {
             } else {
                 title
             };
-            draw_text(bx + 4, by + 4, display, Color::BLACK);
+            // Minimized windows show in gray text
+            let text_color = if *minimized { Color::rgb(0x80, 0x80, 0x80) } else { Color::BLACK };
+            draw_text(bx + 4, by + 4, display, text_color);
         }
     }
 

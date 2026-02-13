@@ -561,15 +561,50 @@ pub fn run() {
         // --- Process mouse events ---
         let (mouse_moved, mouse_click) = mouse_tracker.process_events(sw, sh);
 
+        // Handle mouse button events
         if let Some(click) = mouse_click {
-            if click == MouseClick::LeftDown {
-                let mx = mouse_tracker.x();
-                let my = mouse_tracker.y();
-                match handle_mouse_click(&mut desktop, &mut window_mgr, mx, my, sw, sh) {
-                    InputResult::ExitDesktop => { should_exit = true; }
-                    InputResult::Redraw => { needs_full_redraw = true; }
-                    InputResult::Continue => {}
+            match click {
+                MouseClick::LeftDown => {
+                    let mx = mouse_tracker.x();
+                    let my = mouse_tracker.y();
+                    match handle_mouse_click(&mut desktop, &mut window_mgr, mx, my, sw, sh) {
+                        InputResult::ExitDesktop => { should_exit = true; }
+                        InputResult::Redraw => { needs_full_redraw = true; }
+                        InputResult::Continue => {}
+                    }
                 }
+                MouseClick::LeftUp => {
+                    if window_mgr.is_dragging() {
+                        window_mgr.handle_mouse_up();
+                        needs_full_redraw = true;
+                    }
+                }
+                MouseClick::RightDown => {
+                    // Right-click on empty desktop = unfocus windows
+                    let mx = mouse_tracker.x();
+                    let my = mouse_tracker.y();
+                    let tb_y = sh - TASKBAR_HEIGHT;
+                    if my < tb_y {
+                        // Only unfocus if not clicking a window
+                        if window_mgr.handle_click(mx, my).is_none() {
+                            window_mgr.unfocus_all();
+                            desktop.selected_icon = None;
+                            needs_full_redraw = true;
+                        } else {
+                            needs_full_redraw = true;
+                        }
+                    }
+                }
+                MouseClick::RightUp => {}
+            }
+        }
+
+        // Handle continuous mouse movement during drag/resize
+        if mouse_moved && window_mgr.is_dragging() {
+            let mx = mouse_tracker.x();
+            let my = mouse_tracker.y();
+            if window_mgr.handle_mouse_move(mx, my) {
+                needs_full_redraw = true;
             }
         }
 
@@ -823,7 +858,7 @@ fn handle_mouse_click(
             return InputResult::Redraw;
         }
 
-        // Taskbar window buttons — click to focus
+        // Taskbar window buttons — click to focus/minimize
         let btn_area_x = start_x + start_w + 40;
         let clock_w: u32 = 80;
         let btn_area_w = screen_w - btn_area_x - clock_w - 8;
@@ -832,10 +867,10 @@ fn handle_mouse_click(
 
         if btn_count > 0 && mx >= btn_area_x {
             let btn_w = (btn_area_w / btn_count as u32).min(160);
-            for (i, (id, _, _)) in titles.iter().enumerate() {
+            for (i, (id, _, _, _)) in titles.iter().enumerate() {
                 let bx = btn_area_x + i as u32 * (btn_w + 2);
                 if mx >= bx && mx < bx + btn_w {
-                    wm.focus_window_by_id(*id);
+                    wm.toggle_minimize_by_id(*id);
                     return InputResult::Redraw;
                 }
             }

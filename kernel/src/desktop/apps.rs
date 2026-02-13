@@ -111,6 +111,101 @@ pub fn handle_app_input(win: &mut Window, event: &KeyEvent) -> InputResult {
     }
 }
 
+/// Handle a mouse click inside a window's client area.
+/// `local_x` and `local_y` are relative to the client area origin.
+pub fn handle_app_click(win: &mut Window, local_x: u32, local_y: u32) -> InputResult {
+    match &mut win.app_state {
+        AppState::Calculator(state) => calc_click(state, local_x, local_y),
+        AppState::FileBrowser(state) => filebrowser_click(state, local_y),
+        AppState::TaskManager(state) => taskmgr_click(state, local_y),
+        AppState::SystemInfo(state) => sysinfo_click(state, local_y),
+        _ => InputResult::Redraw,
+    }
+}
+
+/// Calculator: handle click on a button grid.
+fn calc_click(state: &mut CalcState, local_x: u32, local_y: u32) -> InputResult {
+    // Calculator layout: 4 columns of buttons starting below display area
+    let display_h: u32 = CHAR_HEIGHT + 12;
+    if local_y < display_h { return InputResult::Continue; }
+
+    let btn_w: u32 = 40;
+    let btn_h: u32 = 24;
+    let gap: u32 = 4;
+    let col = local_x / (btn_w + gap);
+    let row = (local_y - display_h) / (btn_h + gap);
+
+    // Map (row, col) to calculator key presses
+    let (key, ascii): (KeyCode, u8) = match (row, col) {
+        (0, 0) => (KeyCode::Key7, b'7'),
+        (0, 1) => (KeyCode::Key8, b'8'),
+        (0, 2) => (KeyCode::Key9, b'9'),
+        (0, 3) => (KeyCode::Slash, b'/'),
+        (1, 0) => (KeyCode::Key4, b'4'),
+        (1, 1) => (KeyCode::Key5, b'5'),
+        (1, 2) => (KeyCode::Key6, b'6'),
+        (1, 3) => (KeyCode::Key8, b'*'),  // shift+8 = *
+        (2, 0) => (KeyCode::Key1, b'1'),
+        (2, 1) => (KeyCode::Key2, b'2'),
+        (2, 2) => (KeyCode::Key3, b'3'),
+        (2, 3) => (KeyCode::Minus, b'-'),
+        (3, 0) => (KeyCode::Key0, b'0'),
+        (3, 1) => (KeyCode::Period, b'.'),
+        (3, 2) => (KeyCode::Enter, b'\r'),
+        (3, 3) => (KeyCode::Equals, b'+'),
+        (4, 0) => (KeyCode::C, b'c'),
+        _ => return InputResult::Continue,
+    };
+
+    let event = KeyEvent { key, ascii, pressed: true };
+    calc_input(state, &event)
+}
+
+/// FileBrowser: handle click on a file row.
+fn filebrowser_click(state: &mut FileBrowserState, local_y: u32) -> InputResult {
+    // Each row is CHAR_HEIGHT tall, starts after the header area
+    let header_h: u32 = CHAR_HEIGHT + 4;
+    if local_y < header_h { return InputResult::Continue; }
+    let row = ((local_y - header_h) / CHAR_HEIGHT) as usize + state.scroll;
+    if row < state.entries.len() {
+        if state.selected == row {
+            // Already selected — simulate Enter to navigate
+            let event = KeyEvent { key: KeyCode::Enter, ascii: b'\r', pressed: true };
+            filebrowser_input(state, &event)
+        } else {
+            state.selected = row;
+            InputResult::Redraw
+        }
+    } else {
+        InputResult::Continue
+    }
+}
+
+/// TaskManager: handle click on a task row.
+fn taskmgr_click(state: &mut TaskMgrState, local_y: u32) -> InputResult {
+    let header_h: u32 = CHAR_HEIGHT + 4;
+    if local_y < header_h { return InputResult::Continue; }
+    let row = ((local_y - header_h) / CHAR_HEIGHT) as usize + state.scroll;
+    if row < state.tasks.len() {
+        state.selected = row;
+        InputResult::Redraw
+    } else {
+        InputResult::Continue
+    }
+}
+
+/// SysInfo: handle click for scrolling.
+fn sysinfo_click(state: &mut SysInfoState, local_y: u32) -> InputResult {
+    // Click top half = scroll up, bottom half = scroll down
+    let mid = 100u32;
+    if local_y < mid {
+        if state.scroll > 0 { state.scroll -= 1; }
+    } else {
+        state.scroll += 1;
+    }
+    InputResult::Redraw
+}
+
 // ============================================================================
 // 1. System Information
 // ============================================================================

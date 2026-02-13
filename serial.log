@@ -13,10 +13,10 @@ BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x
   0x80B000 - 0x80C000  (4 KiB) ACPI NVS
   0x80C000 - 0x814000  (32 KiB) Usable
   0x814000 - 0x900000  (944 KiB) ACPI NVS
-  0x900000 - 0xD780000  (211456 KiB) Usable
-  0xD780000 - 0xD8CF070  (1340 KiB) Kernel
-  0xD8CF070 - 0xD8D0000  (3 KiB) Bootloader
-  0xD8D0000 - 0xDF01000  (6340 KiB) Usable
+  0x900000 - 0xD5F2000  (209864 KiB) Usable
+  0xD5F2000 - 0xD789070  (1628 KiB) Kernel
+  0xD789070 - 0xD78A000  (3 KiB) Bootloader
+  0xD78A000 - 0xDF01000  (7644 KiB) Usable
   0xDF01000 - 0xDF49000  (288 KiB) Bootloader
   0xDF49000 - 0xE734000  (8108 KiB) Usable
   0xE734000 - 0xE73A000  (24 KiB) Bootloader
@@ -34,8 +34,8 @@ BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x
   0xFFC00000 - 0x100000000  (4096 KiB) Reserved
   0xFD00000000 - 0x10000000000  (12582912 KiB) Reserved
 [BOOT] =====================================
-[BOOT] Total usable: 254100 KiB
-[BOOT] Boot time: ~3486 ms
+[BOOT] Total usable: 253812 KiB
+[BOOT] Boot time: ~3520 ms
 [BOOT] Regions: 27
 [BOOT] Page tables: 9 pages (36 KiB)
 [BOOT] UEFI runtime regions: 4
@@ -44,12 +44,14 @@ BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x
 [INFO ] cantaya_kernel::hal::cpu: SSE/SSE2 enabled (CR0.EM cleared, CR4.OSFXSR set)
 [INFO ] cantaya_kernel: SSE/FPU enabled
 [INFO ] cantaya_kernel: Boot info valid, framebuffer 1920x1080
-[INFO ] cantaya_kernel::memory: Frame allocator: 63365 free frames (247 MiB)
+[INFO ] cantaya_kernel::memory: Frame allocator: 63293 free frames (247 MiB)
 [INFO ] cantaya_kernel::memory::heap: Heap initialized: 1024 KiB at 0x100000
 [INFO ] cantaya_kernel::memory: Kernel heap initialized
 [INFO ] cantaya_kernel: Memory management initialized
-[INFO ] cantaya_kernel: Total usable memory: 248 MiB
+[INFO ] cantaya_kernel: Total usable memory: 247 MiB
 [INFO ] cantaya_kernel::hal::acpi: ACPI: RSDP found at 0xF77E014, revision 2.0+
+[INFO ] cantaya_kernel::hal::acpi: ACPI: FADT — PM1a=0x604 PM1b=0x0 DSDT=0xF77A000
+[INFO ] cantaya_kernel::hal::acpi: ACPI: S5 shutdown — SLP_TYPa=0 SLP_TYPb=0 supported=true
 [INFO ] cantaya_kernel::hal::acpi: ACPI: MADT parsed — 1 CPUs, Local APIC at 0xFEE00000
 [INFO ] cantaya_kernel::hal::acpi: ACPI: HPET at 0xFED00000
 [INFO ] cantaya_kernel::hal::acpi: ACPI: PCIe MCFG base at 0xE0000000
@@ -58,7 +60,7 @@ BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x
 [INFO ] cantaya_kernel::hal::pci: PCI: 6 device(s) found
 [INFO ] cantaya_kernel: PCI bus enumerated
 [INFO ] cantaya_kernel: Scheduler initialized
-[INFO ] cantaya_kernel::executive::syscall: SYSCALL MSRs programmed: STAR=0x10000800000000, LSTAR=0xFFFFFFFF8000D13C
+[INFO ] cantaya_kernel::executive::syscall: SYSCALL MSRs programmed: STAR=0x10000800000000, LSTAR=0xFFFFFFFF8001F6CC
 [INFO ] cantaya_kernel: SYSCALL MSRs programmed
 [INFO ] cantaya_kernel::hal::mouse: Initializing PS/2 mouse...
 [INFO ] cantaya_kernel::hal::mouse: PS/2 mouse initialized (IntelliMouse with scroll wheel)
@@ -80,181 +82,9 @@ BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x
 [INFO ] cantaya_kernel::storage::fat32: FAT32: reserved=32 fat_sectors=64 data_start=160
 [INFO ] cantaya_kernel::storage: storage: FAT32 filesystem mounted
 [INFO ] cantaya_kernel::storage: storage: VFS initialized — filesystem ready
+[INFO ] cantaya_kernel::storage: storage: filesystem already provisioned
 [INFO ] cantaya_kernel::graphics::framebuffer: Framebuffer: 1920x1080, stride=1920, format=Bgr, double-buffered (8100 KiB back buffer)
 [INFO ] cantaya_kernel::graphics::console: Console: 240x67 characters (66 text + 1 status bar)
 [INFO ] cantaya_kernel::graphics: Graphics subsystem initialized
 [INFO ] cantaya_kernel: All subsystems initialized — launching shell
-[INFO ] cantaya_kernel::shell: System reboot requested by user
-[2J[001;001H[=3h[2J[001;001H[2J[001;001H[8;042;160t[2J[001;001H[2J[001;001H[8;056;240t[2J[001;001HBdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
-BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
-[BOOT] CantayaOS Bootloader entry
-[BOOT] UEFI helpers initialized
-[BOOT] Loading kernel from disk...
-[BOOT] Exiting boot services...
-[BOOT] Boot services exited — translating memory map
-[BOOT] =========== Memory Map ===========
-  0x0 - 0xA0000  (640 KiB) Usable
-  0x100000 - 0x800000  (7168 KiB) Usable
-  0x800000 - 0x808000  (32 KiB) ACPI NVS
-  0x808000 - 0x80B000  (12 KiB) Usable
-  0x80B000 - 0x80C000  (4 KiB) ACPI NVS
-  0x80C000 - 0x814000  (32 KiB) Usable
-  0x814000 - 0x900000  (944 KiB) ACPI NVS
-  0x900000 - 0xD780000  (211456 KiB) Usable
-  0xD780000 - 0xD8CF070  (1340 KiB) Kernel
-  0xD8CF070 - 0xD8D0000  (3 KiB) Bootloader
-  0xD8D0000 - 0xDF01000  (6340 KiB) Usable
-  0xDF01000 - 0xDF49000  (288 KiB) Bootloader
-  0xDF49000 - 0xE734000  (8108 KiB) Usable
-  0xE734000 - 0xE73A000  (24 KiB) Bootloader
-  0xE73A000 - 0xE743000  (36 KiB) PageTables
-  0xE743000 - 0xE93F000  (2032 KiB) Usable
-  0xE93F000 - 0xEA00000  (772 KiB) Reserved
-  0xEA00000 - 0xF4ED000  (11188 KiB) Usable
-  0xF4ED000 - 0xF76D000  (2560 KiB) Reserved
-  0xF76D000 - 0xF77F000  (72 KiB) ACPI Reclaimable
-  0xF77F000 - 0xF7FF000  (512 KiB) ACPI NVS
-  0xF7FF000 - 0xFEF4000  (7124 KiB) Usable
-  0xFEF4000 - 0xFF78000  (528 KiB) Reserved
-  0xFF78000 - 0x10000000  (544 KiB) ACPI NVS
-  0xE0000000 - 0xF0000000  (262144 KiB) Reserved
-  0xFFC00000 - 0x100000000  (4096 KiB) Reserved
-  0xFD00000000 - 0x10000000000  (12582912 KiB) Reserved
-[BOOT] =====================================
-[BOOT] Total usable: 254100 KiB
-[BOOT] Boot time: ~3425 ms
-[BOOT] Regions: 27
-[BOOT] Page tables: 9 pages (36 KiB)
-[BOOT] UEFI runtime regions: 4
-[BOOT] Jumping to kernel...
-[INFO ] cantaya_kernel: CantayaOS Kernel v0.1.0
-[INFO ] cantaya_kernel::hal::cpu: SSE/SSE2 enabled (CR0.EM cleared, CR4.OSFXSR set)
-[INFO ] cantaya_kernel: SSE/FPU enabled
-[INFO ] cantaya_kernel: Boot info valid, framebuffer 1920x1080
-[INFO ] cantaya_kernel::memory: Frame allocator: 63365 free frames (247 MiB)
-[INFO ] cantaya_kernel::memory::heap: Heap initialized: 1024 KiB at 0x100000
-[INFO ] cantaya_kernel::memory: Kernel heap initialized
-[INFO ] cantaya_kernel: Memory management initialized
-[INFO ] cantaya_kernel: Total usable memory: 248 MiB
-[INFO ] cantaya_kernel::hal::acpi: ACPI: RSDP found at 0xF77E014, revision 2.0+
-[INFO ] cantaya_kernel::hal::acpi: ACPI: MADT parsed — 1 CPUs, Local APIC at 0xFEE00000
-[INFO ] cantaya_kernel::hal::acpi: ACPI: HPET at 0xFED00000
-[INFO ] cantaya_kernel::hal::acpi: ACPI: PCIe MCFG base at 0xE0000000
-[INFO ] cantaya_kernel::hal::acpi: ACPI: 1 CPUs, I/O APIC at 0xFEC00000, 6 tables found
-[INFO ] cantaya_kernel: ACPI initialized (RSDP at 0xF77E014)
-[INFO ] cantaya_kernel::hal::pci: PCI: 6 device(s) found
-[INFO ] cantaya_kernel: PCI bus enumerated
-[INFO ] cantaya_kernel: Scheduler initialized
-[INFO ] cantaya_kernel::executive::syscall: SYSCALL MSRs programmed: STAR=0x10000800000000, LSTAR=0xFFFFFFFF8000D13C
-[INFO ] cantaya_kernel: SYSCALL MSRs programmed
-[INFO ] cantaya_kernel::hal::mouse: Initializing PS/2 mouse...
-[INFO ] cantaya_kernel::hal::mouse: PS/2 mouse initialized (IntelliMouse with scroll wheel)
-[INFO ] cantaya_kernel: PS/2 mouse initialized
-[INFO ] cantaya_kernel::hal::pit: PIT: Channel 0 set to 1000 Hz (divisor 1193)
-[INFO ] cantaya_kernel: Interrupts enabled, PIT at 1000 Hz
-[INFO ] cantaya_kernel::storage: storage: initializing storage subsystem...
-[INFO ] cantaya_kernel::hal::virtio_blk: virtio-blk: found device at 00:02.0 IRQ=11
-[INFO ] cantaya_kernel::hal::virtio_blk: virtio-blk: I/O base = 0x6000
-[INFO ] cantaya_kernel::hal::virtio: virtio: device features=0x79006E54, negotiated=0x0
-[INFO ] cantaya_kernel::hal::virtio: virtio: queue 0 size = 256
-[INFO ] cantaya_kernel::hal::virtio: virtio: queue 0 at phys 0x200000 (3 pages)
-[INFO ] cantaya_kernel::hal::virtio_blk: virtio-blk: capacity = 65536 sectors (32 MiB)
-[INFO ] cantaya_kernel::hal::idt: IDT: registered virtio handler at vector 43 (IRQ 11)
-[INFO ] cantaya_kernel::hal::virtio_blk: virtio-blk: unmasked IRQ 11
-[INFO ] cantaya_kernel::hal::virtio_blk: virtio-blk: driver initialized successfully
-[INFO ] cantaya_kernel::storage::block: block: device ready, 65536 sectors (32 MiB)
-[INFO ] cantaya_kernel::storage::fat32: FAT32: volume='CANTAYAOS' clusters=8172 spc=8 root_cluster=2
-[INFO ] cantaya_kernel::storage::fat32: FAT32: reserved=32 fat_sectors=64 data_start=160
-[INFO ] cantaya_kernel::storage: storage: FAT32 filesystem mounted
-[INFO ] cantaya_kernel::storage: storage: VFS initialized — filesystem ready
-[INFO ] cantaya_kernel::graphics::framebuffer: Framebuffer: 1920x1080, stride=1920, format=Bgr, double-buffered (8100 KiB back buffer)
-[INFO ] cantaya_kernel::graphics::console: Console: 240x67 characters (66 text + 1 status bar)
-[INFO ] cantaya_kernel::graphics: Graphics subsystem initialized
-[INFO ] cantaya_kernel: All subsystems initialized — launching shell
-[INFO ] cantaya_kernel::shell: System reboot requested by user
-[2J[001;001H[=3h[2J[001;001H[2J[001;001H[8;042;160t[2J[001;001H[2J[001;001H[8;056;240t[2J[001;001HBdsDxe: loading Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
-BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
-[BOOT] CantayaOS Bootloader entry
-[BOOT] UEFI helpers initialized
-[BOOT] Loading kernel from disk...
-[BOOT] Exiting boot services...
-[BOOT] Boot services exited — translating memory map
-[BOOT] =========== Memory Map ===========
-  0x0 - 0xA0000  (640 KiB) Usable
-  0x100000 - 0x800000  (7168 KiB) Usable
-  0x800000 - 0x808000  (32 KiB) ACPI NVS
-  0x808000 - 0x80B000  (12 KiB) Usable
-  0x80B000 - 0x80C000  (4 KiB) ACPI NVS
-  0x80C000 - 0x814000  (32 KiB) Usable
-  0x814000 - 0x900000  (944 KiB) ACPI NVS
-  0x900000 - 0xD780000  (211456 KiB) Usable
-  0xD780000 - 0xD8CF070  (1340 KiB) Kernel
-  0xD8CF070 - 0xD8D0000  (3 KiB) Bootloader
-  0xD8D0000 - 0xDF01000  (6340 KiB) Usable
-  0xDF01000 - 0xDF49000  (288 KiB) Bootloader
-  0xDF49000 - 0xE734000  (8108 KiB) Usable
-  0xE734000 - 0xE73A000  (24 KiB) Bootloader
-  0xE73A000 - 0xE743000  (36 KiB) PageTables
-  0xE743000 - 0xE93F000  (2032 KiB) Usable
-  0xE93F000 - 0xEA00000  (772 KiB) Reserved
-  0xEA00000 - 0xF4ED000  (11188 KiB) Usable
-  0xF4ED000 - 0xF76D000  (2560 KiB) Reserved
-  0xF76D000 - 0xF77F000  (72 KiB) ACPI Reclaimable
-  0xF77F000 - 0xF7FF000  (512 KiB) ACPI NVS
-  0xF7FF000 - 0xFEF4000  (7124 KiB) Usable
-  0xFEF4000 - 0xFF78000  (528 KiB) Reserved
-  0xFF78000 - 0x10000000  (544 KiB) ACPI NVS
-  0xE0000000 - 0xF0000000  (262144 KiB) Reserved
-  0xFFC00000 - 0x100000000  (4096 KiB) Reserved
-  0xFD00000000 - 0x10000000000  (12582912 KiB) Reserved
-[BOOT] =====================================
-[BOOT] Total usable: 254100 KiB
-[BOOT] Boot time: ~3487 ms
-[BOOT] Regions: 27
-[BOOT] Page tables: 9 pages (36 KiB)
-[BOOT] UEFI runtime regions: 4
-[BOOT] Jumping to kernel...
-[INFO ] cantaya_kernel: CantayaOS Kernel v0.1.0
-[INFO ] cantaya_kernel::hal::cpu: SSE/SSE2 enabled (CR0.EM cleared, CR4.OSFXSR set)
-[INFO ] cantaya_kernel: SSE/FPU enabled
-[INFO ] cantaya_kernel: Boot info valid, framebuffer 1920x1080
-[INFO ] cantaya_kernel::memory: Frame allocator: 63365 free frames (247 MiB)
-[INFO ] cantaya_kernel::memory::heap: Heap initialized: 1024 KiB at 0x100000
-[INFO ] cantaya_kernel::memory: Kernel heap initialized
-[INFO ] cantaya_kernel: Memory management initialized
-[INFO ] cantaya_kernel: Total usable memory: 248 MiB
-[INFO ] cantaya_kernel::hal::acpi: ACPI: RSDP found at 0xF77E014, revision 2.0+
-[INFO ] cantaya_kernel::hal::acpi: ACPI: MADT parsed — 1 CPUs, Local APIC at 0xFEE00000
-[INFO ] cantaya_kernel::hal::acpi: ACPI: HPET at 0xFED00000
-[INFO ] cantaya_kernel::hal::acpi: ACPI: PCIe MCFG base at 0xE0000000
-[INFO ] cantaya_kernel::hal::acpi: ACPI: 1 CPUs, I/O APIC at 0xFEC00000, 6 tables found
-[INFO ] cantaya_kernel: ACPI initialized (RSDP at 0xF77E014)
-[INFO ] cantaya_kernel::hal::pci: PCI: 6 device(s) found
-[INFO ] cantaya_kernel: PCI bus enumerated
-[INFO ] cantaya_kernel: Scheduler initialized
-[INFO ] cantaya_kernel::executive::syscall: SYSCALL MSRs programmed: STAR=0x10000800000000, LSTAR=0xFFFFFFFF8000D13C
-[INFO ] cantaya_kernel: SYSCALL MSRs programmed
-[INFO ] cantaya_kernel::hal::mouse: Initializing PS/2 mouse...
-[INFO ] cantaya_kernel::hal::mouse: PS/2 mouse initialized (IntelliMouse with scroll wheel)
-[INFO ] cantaya_kernel: PS/2 mouse initialized
-[INFO ] cantaya_kernel::hal::pit: PIT: Channel 0 set to 1000 Hz (divisor 1193)
-[INFO ] cantaya_kernel: Interrupts enabled, PIT at 1000 Hz
-[INFO ] cantaya_kernel::storage: storage: initializing storage subsystem...
-[INFO ] cantaya_kernel::hal::virtio_blk: virtio-blk: found device at 00:02.0 IRQ=11
-[INFO ] cantaya_kernel::hal::virtio_blk: virtio-blk: I/O base = 0x6000
-[INFO ] cantaya_kernel::hal::virtio: virtio: device features=0x79006E54, negotiated=0x0
-[INFO ] cantaya_kernel::hal::virtio: virtio: queue 0 size = 256
-[INFO ] cantaya_kernel::hal::virtio: virtio: queue 0 at phys 0x200000 (3 pages)
-[INFO ] cantaya_kernel::hal::virtio_blk: virtio-blk: capacity = 65536 sectors (32 MiB)
-[INFO ] cantaya_kernel::hal::idt: IDT: registered virtio handler at vector 43 (IRQ 11)
-[INFO ] cantaya_kernel::hal::virtio_blk: virtio-blk: unmasked IRQ 11
-[INFO ] cantaya_kernel::hal::virtio_blk: virtio-blk: driver initialized successfully
-[INFO ] cantaya_kernel::storage::block: block: device ready, 65536 sectors (32 MiB)
-[INFO ] cantaya_kernel::storage::fat32: FAT32: volume='CANTAYAOS' clusters=8172 spc=8 root_cluster=2
-[INFO ] cantaya_kernel::storage::fat32: FAT32: reserved=32 fat_sectors=64 data_start=160
-[INFO ] cantaya_kernel::storage: storage: FAT32 filesystem mounted
-[INFO ] cantaya_kernel::storage: storage: VFS initialized — filesystem ready
-[INFO ] cantaya_kernel::graphics::framebuffer: Framebuffer: 1920x1080, stride=1920, format=Bgr, double-buffered (8100 KiB back buffer)
-[INFO ] cantaya_kernel::graphics::console: Console: 240x67 characters (66 text + 1 status bar)
-[INFO ] cantaya_kernel::graphics: Graphics subsystem initialized
-[INFO ] cantaya_kernel: All subsystems initialized — launching shell
+[INFO ] cantaya_kernel::shell: Running /Windows/System32/Config/autoexec.cfg
