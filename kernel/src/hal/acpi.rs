@@ -43,6 +43,18 @@ pub struct AcpiInfo {
     pub table_signatures: [[u8; 4]; 32],
     /// Number of discovered tables
     pub table_count: usize,
+    /// FADT: PM1a control block I/O port
+    pub pm1a_control_block: u32,
+    /// FADT: PM1b control block I/O port (0 if not present)
+    pub pm1b_control_block: u32,
+    /// FADT: SLP_TYPa value for S5 (shutdown)
+    pub slp_typa_s5: u16,
+    /// FADT: SLP_TYPb value for S5 (shutdown)
+    pub slp_typb_s5: u16,
+    /// Whether S5 (soft-off) is supported
+    pub s5_supported: bool,
+    /// DSDT address from FADT
+    pub dsdt_address: u64,
 }
 
 impl AcpiInfo {
@@ -58,6 +70,12 @@ impl AcpiInfo {
             oem_id: [0; 6],
             table_signatures: [[0; 4]; 32],
             table_count: 0,
+            pm1a_control_block: 0,
+            pm1b_control_block: 0,
+            slp_typa_s5: 0,
+            slp_typb_s5: 0,
+            s5_supported: false,
+            dsdt_address: 0,
         }
     }
 
@@ -299,6 +317,7 @@ fn parse_sdt(info: &mut AcpiInfo, sdt_phys: u64) {
 
     match &sig {
         b"APIC" => parse_madt(info, sdt_phys),
+        b"FACP" => parse_fadt(info, sdt_phys),
         b"HPET" => parse_hpet(info, sdt_phys),
         b"MCFG" => parse_mcfg(info, sdt_phys),
         _ => {} // Ignore tables we don't need yet
@@ -401,3 +420,169 @@ fn parse_mcfg(info: &mut AcpiInfo, mcfg_phys: u64) {
         log::info!("ACPI: PCIe MCFG base at {:#X}", addr);
     }
 }
+
+/// Parse the FADT (Fixed ACPI Description Table) for power management
+fn parse_fadt(info: &mut AcpiInfo, fadt_phys: u64) {
+    let base = fadt_phys as usize;
+    let header = fadt_phys as *const SdtHeader;
+    let total_len = unsafe { (*header).length } as usize;
+
+    // FADT offsets (bytes from start):
+    //   36: DSDT address (4 bytes, 32-bit)
+    //   64: PM1a_CNT_BLK (4 bytes)
+    //   68: PM1b_CNT_BLK (4 bytes)
+    //  140: X_DSDT (8 bytes, 64-bit, ACPI 2.0+)
+
+    if total_len < 72 {
+        log::warn!("ACPI: FADT too short ({} bytes)", total_len);
+        return;
+    }
+
+    unsafe {
+        // DSDT address (32-bit)
+        let dsdt32 = core::ptr::read_unaligned((base + 36) as *const u32) as u64;
+
+        // PM1a/PM1b control blocks
+        info.pm1a_control_block = core::ptr::read_unaligned((base + 64) as *const u32);
+        info.pm1b_control_block = core::ptr::read_unaligned((base + 68) as *const u32);
+
+        // Try 64-bit DSDT (ACPI 2.0+, offset 140)
+        if total_len >= 148 {
+            let dsdt64 = core::ptr::read_unaligned((base + 140) as *const u64);
+            info.dsdt_address = if dsdt64 != 0 { dsdt64 } else { dsdt32 };
+        } else {
+            info.dsdt_address = dsdt32;
+        }
+
+        log::info!("ACPI: FADT — PM1a={:#X} PM1b={:#X} DSDT={:#X}",
+            info.pm1a_control_block, info.pm1b_control_block, info.dsdt_address);
+
+        // Try to find S5 sleep type values from the DSDT
+        if info.dsdt_address != 0 {
+            parse_s5_from_dsdt(info);
+        }
+    }
+}
+
+/// Search the DSDT for the \_S5 object to get SLP_TYP values for shutdown.
+/// The AML bytecode pattern is: '_S5_' followed by a package containing the values.
+fn parse_s5_from_dsdt(info: &mut AcpiInfo) {
+    let dsdt = info.dsdt_address as *const SdtHeader;
+    let total_len = unsafe { (*dsdt).length } as usize;
+    let base = info.dsdt_address as usize;
+    let header_size = core::mem::size_of::<SdtHeader>();
+
+    if total_len <= header_size || total_len > 0x100000 {
+        // Use QEMU default S5 values
+        info.slp_typa_s5 = 5;
+        info.slp_typb_s5 = 0;
+        info.s5_supported = true;
+        return;
+    }
+
+    let aml_start = base + header_size;
+    let aml_len = total_len - header_size;
+    let aml = unsafe { core::slice::from_raw_parts(aml_start as *const u8, aml_len) };
+
+    // Search for "_S5_" in the AML bytecode
+    let pattern = b"_S5_";
+    let mut found = false;
+
+    for i in 0..aml_len.saturating_sub(20) {
+        if aml[i..i + 4] == *pattern {
+            // Found _S5_ — look for package opcode (0x12)
+            let mut j = i + 4;
+            // Skip name and DefScope bytes
+            while j < aml_len && j < i + 20 {
+                if aml[j] == 0x12 {
+                    // Package opcode found
+                    j += 1; // skip package opcode
+                    // PkgLength (simplified: single byte for small packages)
+                    if j < aml_len {
+                        j += 1; // skip PkgLength
+                    }
+                    if j < aml_len {
+                        j += 1; // skip NumElements
+                    }
+                    // Read SLP_TYPa
+                    if j < aml_len {
+                        if aml[j] == 0x0A {
+                            // BytePrefix
+                            j += 1;
+                            if j < aml_len {
+                                info.slp_typa_s5 = aml[j] as u16;
+                                j += 1;
+                            }
+                        } else {
+                            info.slp_typa_s5 = aml[j] as u16;
+                            j += 1;
+                        }
+                    }
+                    // Read SLP_TYPb
+                    if j < aml_len {
+                        if aml[j] == 0x0A {
+                            j += 1;
+                            if j < aml_len {
+                                info.slp_typb_s5 = aml[j] as u16;
+                            }
+                        } else {
+                            info.slp_typb_s5 = aml[j] as u16;
+                        }
+                    }
+                    info.s5_supported = true;
+                    found = true;
+                    break;
+                }
+                j += 1;
+            }
+            if found { break; }
+        }
+    }
+
+    if !found {
+        // Fallback: use typical values for QEMU/Bochs
+        info.slp_typa_s5 = 5;
+        info.slp_typb_s5 = 0;
+        info.s5_supported = true;
+    }
+
+    log::info!("ACPI: S5 shutdown — SLP_TYPa={} SLP_TYPb={} supported={}",
+        info.slp_typa_s5, info.slp_typb_s5, info.s5_supported);
+}
+
+/// Perform an ACPI S5 soft-off shutdown.
+/// This writes the SLP_TYP and SLP_EN bits to the PM1 control registers.
+pub fn acpi_shutdown() {
+    let info = ACPI_INFO.lock();
+
+    if !info.s5_supported || info.pm1a_control_block == 0 {
+        log::warn!("ACPI: S5 shutdown not available, using fallback");
+        drop(info);
+        // Fallback: QEMU-specific shutdown port
+        unsafe {
+            super::port::outw(0x604, 0x2000);
+            loop { core::arch::asm!("cli; hlt"); }
+        }
+    }
+
+    let pm1a = info.pm1a_control_block as u16;
+    let pm1b = info.pm1b_control_block as u16;
+    let slp_typa = info.slp_typa_s5;
+    let slp_typb = info.slp_typb_s5;
+    drop(info);
+
+    // SLP_EN = bit 13, SLP_TYP in bits 10-12
+    let val_a = (slp_typa << 10) | (1 << 13);
+    let val_b = (slp_typb << 10) | (1 << 13);
+
+    unsafe {
+        super::port::outw(pm1a, val_a);
+        if pm1b != 0 {
+            super::port::outw(pm1b, val_b);
+        }
+        // If ACPI shutdown didn't work, try QEMU port
+        super::port::outw(0x604, 0x2000);
+        loop { core::arch::asm!("cli; hlt"); }
+    }
+}
+

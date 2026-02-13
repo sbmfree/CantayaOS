@@ -29,6 +29,7 @@ pub mod mouse;
 pub mod rtc;
 pub mod acpi;
 pub mod pci;
+pub mod speaker;
 pub mod virtio;
 pub mod virtio_blk;
 

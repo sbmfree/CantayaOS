@@ -47,6 +47,72 @@ pub fn ticks() -> u64 {
     TICK_COUNT.load(core::sync::atomic::Ordering::Relaxed)
 }
 
+/// Hostname (configurable, persisted)
+static HOSTNAME: spin::Mutex<[u8; 64]> = spin::Mutex::new([0u8; 64]);
+static HOSTNAME_LEN: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(7);
+
+fn get_hostname() -> String {
+    let buf = HOSTNAME.lock();
+    let len = HOSTNAME_LEN.load(core::sync::atomic::Ordering::Relaxed);
+    if len == 0 {
+        return String::from("cantaya");
+    }
+    core::str::from_utf8(&buf[..len]).unwrap_or("cantaya").into()
+}
+
+fn set_hostname_value(name: &str) {
+    let mut buf = HOSTNAME.lock();
+    let len = name.len().min(63);
+    buf[..len].copy_from_slice(&name.as_bytes()[..len]);
+    HOSTNAME_LEN.store(len, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Environment variables
+use alloc::collections::BTreeMap;
+use alloc::string::ToString;
+static ENV_VARS: spin::Mutex<Option<BTreeMap<String, String>>> = spin::Mutex::new(None);
+
+fn env_init() {
+    let mut env = ENV_VARS.lock();
+    if env.is_none() {
+        let mut map = BTreeMap::new();
+        map.insert("OS".into(), "CantayaOS".into());
+        map.insert("ARCH".into(), "x86_64".into());
+        map.insert("SHELL".into(), "csh".into());
+        map.insert("USER".into(), "root".into());
+        map.insert("HOME".into(), "/".into());
+        let mut ver = String::new();
+        write!(ver, "{}", env!("CARGO_PKG_VERSION")).ok();
+        map.insert("VERSION".into(), ver);
+        *env = Some(map);
+    }
+}
+
+fn env_get(key: &str) -> Option<String> {
+    env_init();
+    let env = ENV_VARS.lock();
+    env.as_ref().and_then(|m| m.get(key).cloned())
+}
+
+fn env_set(key: &str, value: &str) {
+    env_init();
+    let mut env = ENV_VARS.lock();
+    if let Some(ref mut m) = *env {
+        m.insert(key.into(), value.into());
+    }
+}
+
+fn env_remove(key: &str) {
+    env_init();
+    let mut env = ENV_VARS.lock();
+    if let Some(ref mut m) = *env {
+        m.remove(key);
+    }
+}
+
+/// Static command history accessible from the `history` command
+static CMD_HISTORY: spin::Mutex<History> = spin::Mutex::new(History::new());
+
 /// Command history ring buffer
 struct History {
     entries: [[u8; MAX_CMD_LEN]; HISTORY_SIZE],
@@ -126,11 +192,17 @@ impl History {
 pub fn run() -> ! {
     // Load saved theme before the banner so it renders with the right colors
     load_saved_theme();
+
+    // Play startup chime
+    crate::hal::speaker::startup_chime();
+
+    // Run startup script from disk
+    run_autoexec();
+
     print_banner();
 
     let mut cmd_buf = [0u8; MAX_CMD_LEN];
     let mut cmd_len: usize = 0;
-    let mut history = History::new();
 
     print_prompt();
 
@@ -159,7 +231,7 @@ pub fn run() -> ! {
             b'\n' => {
                 console::print("\n");
                 if cmd_len > 0 {
-                    history.push(&cmd_buf, cmd_len);
+                    CMD_HISTORY.lock().push(&cmd_buf, cmd_len);
                     let cmd = core::str::from_utf8(&cmd_buf[..cmd_len]).unwrap_or("");
                     execute_command(cmd);
                     cmd_len = 0;
@@ -218,9 +290,13 @@ pub fn run() -> ! {
             _ => {
                 match event.key {
                     KeyCode::Up => {
-                        if let Some((entry, len)) = history.go_up() {
+                        let mut hist = CMD_HISTORY.lock();
+                        if let Some((entry, len)) = hist.go_up() {
+                            let mut tmp = [0u8; MAX_CMD_LEN];
+                            tmp[..len].copy_from_slice(entry);
+                            drop(hist);
                             for _ in 0..cmd_len { console::backspace(); }
-                            cmd_buf[..len].copy_from_slice(entry);
+                            cmd_buf[..len].copy_from_slice(&tmp[..len]);
                             cmd_len = len;
                             if let Ok(s) = core::str::from_utf8(&cmd_buf[..cmd_len]) {
                                 console::print(s);
@@ -228,9 +304,13 @@ pub fn run() -> ! {
                         }
                     }
                     KeyCode::Down => {
-                        if let Some((entry, len)) = history.go_down() {
+                        let mut hist = CMD_HISTORY.lock();
+                        if let Some((entry, len)) = hist.go_down() {
+                            let mut tmp = [0u8; MAX_CMD_LEN];
+                            tmp[..len].copy_from_slice(entry);
+                            drop(hist);
                             for _ in 0..cmd_len { console::backspace(); }
-                            cmd_buf[..len].copy_from_slice(entry);
+                            cmd_buf[..len].copy_from_slice(&tmp[..len]);
                             cmd_len = len;
                             if let Ok(s) = core::str::from_utf8(&cmd_buf[..cmd_len]) {
                                 console::print(s);
@@ -247,22 +327,26 @@ pub fn run() -> ! {
 /// Simple tab completion — returns the first command matching the prefix.
 fn tab_complete(prefix: &str) -> Option<&'static str> {
     const COMMANDS: &[&str] = &[
-        "acpi", "bootinfo", "cat", "cd", "clear", "cls", "color",
-        "copy", "cp", "cpu", "date", "del", "desktop", "dir",
-        "disk", "echo", "halt", "help", "hexdump",
-        "interrupts", "irq", "kill", "ls", "lspci", "md", "mem",
-        "memory", "memmap", "mkdir", "panic", "pci", "priority",
-        "ps", "pwd", "reboot", "rm", "shutdown", "sleep", "spawn",
-        "sysinfo", "tasks", "tick", "type", "uptime", "ver",
-        "version", "write", "yield",
+        "acpi", "append", "banner", "beep", "bootinfo", "cal", "cat", "cd",
+        "clear", "cls", "color", "copy", "cp", "cpu", "date", "del",
+        "desktop", "dir", "disk", "echo", "edit", "env", "find",
+        "fortune", "grep", "halt", "head", "help", "hexdump", "history",
+        "hostname", "interrupts", "irq", "kill", "ls", "lspci", "md",
+        "mem", "memory", "memmap", "mkdir", "mv", "panic", "pci",
+        "poweroff", "priority", "ps", "pwd", "reboot", "rename", "rm",
+        "set", "shutdown", "sleep", "spawn", "stat", "sysinfo",
+        "tail", "tasks", "tick", "touch", "tree", "type", "unset",
+        "uptime", "ver", "version", "wc", "whoami", "write", "xxd",
+        "yield",
     ];
     COMMANDS.iter().find(|cmd| cmd.starts_with(prefix)).copied()
 }
 
 fn print_prompt() {
     update_status_bar();
+    let hostname = get_hostname();
     console::set_color(0x00, 0xCC, 0x00);
-    console::print("cantaya");
+    console::print(&hostname);
     console::set_color(0xFF, 0xFF, 0xFF);
     console::print("> ");
 }
@@ -327,6 +411,24 @@ fn execute_command(input: &str) {
     let input = input.trim();
     if input.is_empty() { return; }
 
+    // Support command chaining with ';'
+    if input.contains(';') {
+        for part in input.split(';') {
+            let part = part.trim();
+            if !part.is_empty() {
+                execute_single_command(part);
+            }
+        }
+        return;
+    }
+
+    execute_single_command(input);
+}
+
+fn execute_single_command(input: &str) {
+    let input = input.trim();
+    if input.is_empty() { return; }
+
     let (cmd, args) = match input.find(' ') {
         Some(pos) => (&input[..pos], input[pos + 1..].trim()),
         None => (input, ""),
@@ -340,7 +442,7 @@ fn execute_command(input: &str) {
         "uptime" => cmd_uptime(),
         "clear" | "cls" => cmd_clear(),
         "echo" => cmd_echo(args),
-        "halt" | "shutdown" => cmd_halt(),
+        "halt" | "shutdown" | "poweroff" => cmd_halt(),
         "reboot" => cmd_reboot(),
         "tasks" | "ps" => cmd_tasks(),
         "spawn" => cmd_spawn(args),
@@ -360,6 +462,7 @@ fn execute_command(input: &str) {
         "bootinfo" => cmd_bootinfo(),
         "memmap" => cmd_memmap(),
         "panic" => cmd_panic(),
+        // Filesystem
         "ls" | "dir" => cmd_ls(args),
         "cat" | "type" => cmd_cat(args),
         "write" => cmd_write(args),
@@ -369,6 +472,28 @@ fn execute_command(input: &str) {
         "disk" => cmd_disk(),
         "cd" => cmd_cd(args),
         "pwd" => cmd_pwd(),
+        // New commands
+        "beep" => cmd_beep(args),
+        "hostname" => cmd_hostname(args),
+        "whoami" => cmd_whoami(),
+        "history" => cmd_history(),
+        "grep" => cmd_grep(args),
+        "find" => cmd_find(args),
+        "wc" => cmd_wc(args),
+        "head" => cmd_head(args),
+        "tail" => cmd_tail(args),
+        "touch" => cmd_touch(args),
+        "stat" => cmd_stat(args),
+        "tree" => cmd_tree(args),
+        "cal" => cmd_cal(),
+        "fortune" => cmd_fortune(),
+        "banner" => cmd_banner(args),
+        "env" | "set" => cmd_env(args),
+        "unset" => cmd_unset(args),
+        "edit" => cmd_edit(args),
+        "append" => cmd_append(args),
+        "rename" | "mv" => cmd_rename(args),
+        "xxd" => cmd_xxd(args),
         _ => {
             let mut s = String::new();
             write!(s, "Unknown command: '{}'. Type 'help' for available commands.", cmd).ok();
@@ -385,7 +510,7 @@ fn execute_command(input: &str) {
 
 fn cmd_help() {
     console::set_color(0xFF, 0xFF, 0x55);
-    console::println("Available Commands:");
+    console::println("System Commands:");
     console::set_color(0xFF, 0xFF, 0xFF);
     console::println("  help             Show this help message");
     console::println("  ver              Display kernel version");
@@ -394,40 +519,72 @@ fn cmd_help() {
     console::println("  memmap           Show memory map regions");
     console::println("  cpu              Display CPU information");
     console::println("  date             Show current date and time (RTC)");
-    console::println("  desktop          Launch the graphical desktop environment");
+    console::println("  uptime           Show system uptime");
+    console::println("  hostname [name]  Show/set hostname");
+    console::println("  whoami           Show current user");
+    console::set_color(0xFF, 0xFF, 0x55);
+    console::println("\nProcess Commands:");
+    console::set_color(0xFF, 0xFF, 0xFF);
     console::println("  tasks            List active tasks with priority/CPU");
     console::println("  spawn <task>     Spawn a task (counter/spinner/stress)");
     console::println("  kill <id>        Terminate a task by ID");
     console::println("  priority <id> <p> Set task priority (idle/low/normal/high/rt)");
     console::println("  sleep <ms>       Sleep current task for N milliseconds");
     console::println("  yield            Yield current time slice");
-    console::println("  uptime           Show system uptime");
-    console::println("  tick             Show timer tick count");
-    console::println("  interrupts       Show IRQ statistics");
+    console::set_color(0xFF, 0xFF, 0x55);
+    console::println("\nHardware Commands:");
+    console::set_color(0xFF, 0xFF, 0xFF);
     console::println("  pci / lspci      Enumerate PCI devices");
     console::println("  acpi             Show ACPI information");
+    console::println("  interrupts       Show IRQ statistics");
     console::println("  bootinfo         Show boot information");
     console::println("  hexdump <a> [n]  Dump n bytes at hex address a");
-    console::println("  color <scheme>   Change color (green/amber/white/blue/default)");
-    console::println("  echo <msg>       Echo text to console");
-    console::println("  clear            Clear the screen");
-    console::println("  panic            Trigger a kernel panic (for testing BSOD)");
-    console::println("  halt             Shut down the system");
-    console::println("  reboot           Reboot the system");
+    console::println("  beep [freq] [ms] Play a tone via PC speaker");
     console::set_color(0xFF, 0xFF, 0x55);
     console::println("\nFilesystem Commands:");
     console::set_color(0xFF, 0xFF, 0xFF);
     console::println("  ls [path]        List directory contents");
     console::println("  cat <file>       Display file contents");
     console::println("  write <f> <text> Write text to a file");
+    console::println("  append <f> <txt> Append text to a file");
+    console::println("  edit <file>      Open file in text editor");
+    console::println("  touch <file>     Create an empty file");
     console::println("  mkdir <dir>      Create a directory");
     console::println("  rm <file|dir>    Delete a file or empty directory");
     console::println("  cp <src> <dst>   Copy a file");
+    console::println("  rename <s> <d>   Rename/move a file");
     console::println("  cd <dir>         Change working directory");
     console::println("  pwd              Print working directory");
     console::println("  disk             Show disk/filesystem info");
+    console::println("  stat <file>      Show file information");
+    console::println("  tree [path]      Show directory tree");
+    console::set_color(0xFF, 0xFF, 0x55);
+    console::println("\nText Processing:");
+    console::set_color(0xFF, 0xFF, 0xFF);
+    console::println("  grep <pat> <f>   Search for pattern in file");
+    console::println("  find <name>      Find files by name");
+    console::println("  wc <file>        Count lines/words/chars");
+    console::println("  head <file> [n]  Show first n lines (default 10)");
+    console::println("  tail <file> [n]  Show last n lines (default 10)");
+    console::println("  xxd <file>       Hex dump a file");
+    console::set_color(0xFF, 0xFF, 0x55);
+    console::println("\nShell & Environment:");
+    console::set_color(0xFF, 0xFF, 0xFF);
+    console::println("  echo <msg>       Echo text to console");
+    console::println("  history          Show command history");
+    console::println("  env / set        Show/set environment variables");
+    console::println("  unset <var>      Remove an environment variable");
+    console::println("  cal              Show calendar");
+    console::println("  fortune          Random wisdom");
+    console::println("  banner <text>    ASCII art banner");
+    console::println("  color <scheme>   Change color (green/amber/white/blue/default)");
+    console::println("  clear            Clear the screen");
+    console::println("  desktop          Launch the graphical desktop environment");
+    console::println("  halt / poweroff  Shut down the system (ACPI S5)");
+    console::println("  reboot           Reboot the system");
+    console::println("  panic            Trigger a kernel panic (for testing BSOD)");
     console::set_color(0xAA, 0xAA, 0xAA);
-    console::println("\nTip: Up/Down arrows = history, Tab = completion");
+    console::println("\nTip: Up/Down = history | Tab = completion | ; = chain commands");
     console::set_color(0xFF, 0xFF, 0xFF);
 }
 
@@ -1081,11 +1238,8 @@ fn cmd_halt() {
     console::println("Shutting down CantayaOS...");
     console::set_color(0xFF, 0xFF, 0xFF);
     log::info!("System halt requested by user");
-
-    unsafe {
-        crate::hal::port::outb(0x604, 0x00);
-        loop { core::arch::asm!("cli; hlt"); }
-    }
+    crate::hal::speaker::beep(440, 100);
+    crate::hal::acpi::acpi_shutdown();
 }
 
 fn cmd_reboot() {
@@ -1741,5 +1895,1095 @@ fn cmd_disk() {
         console::set_color(0xAA, 0xAA, 0xAA);
         console::println("  Filesystem:     (not mounted)");
         console::set_color(0xFF, 0xFF, 0xFF);
+    }
+}
+
+// ============================================================================
+// New Commands — Enhanced Shell v2.0
+// ============================================================================
+
+fn cmd_beep(args: &str) {
+    let parts: alloc::vec::Vec<&str> = args.split_whitespace().collect();
+    let freq = parts.first().and_then(|s| s.parse::<u32>().ok()).unwrap_or(440);
+    let dur = parts.get(1).and_then(|s| s.parse::<u64>().ok()).unwrap_or(200);
+    let dur = dur.min(5000);
+    let mut s = String::new();
+    write!(s, "Beep: {} Hz for {} ms", freq, dur).ok();
+    console::println(&s);
+    crate::hal::speaker::beep(freq, dur);
+}
+
+fn cmd_hostname(args: &str) {
+    let name = args.trim();
+    if name.is_empty() {
+        console::println(&get_hostname());
+    } else {
+        set_hostname_value(name);
+        // Persist hostname
+        use crate::storage::vfs;
+        if crate::hal::virtio_blk::is_available() {
+            if !vfs::exists("/system") { vfs::mkdir("/system"); }
+            vfs::write_file("/system/hostname.cfg", name.as_bytes());
+        }
+        let mut s = String::new();
+        write!(s, "Hostname set to '{}'", name).ok();
+        console::set_color(0x55, 0xFF, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+    }
+}
+
+fn cmd_whoami() {
+    let user = env_get("USER").unwrap_or_else(|| "root".into());
+    console::println(&user);
+}
+
+fn cmd_history() {
+    let hist = CMD_HISTORY.lock();
+    if hist.count == 0 {
+        console::set_color(0xAA, 0xAA, 0xAA);
+        console::println("(no command history)");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    console::set_color(0xFF, 0xFF, 0x55);
+    console::println("Command History:");
+    console::set_color(0xFF, 0xFF, 0xFF);
+
+    let start = if hist.count < HISTORY_SIZE {
+        0
+    } else {
+        hist.write_idx
+    };
+
+    for i in 0..hist.count {
+        let idx = (start + i) % HISTORY_SIZE;
+        let len = hist.lengths[idx];
+        if len > 0 {
+            if let Ok(cmd) = core::str::from_utf8(&hist.entries[idx][..len]) {
+                let mut s = String::new();
+                write!(s, "  {:>3}  {}", i + 1, cmd).ok();
+                console::println(&s);
+            }
+        }
+    }
+}
+
+fn cmd_grep(args: &str) {
+    use crate::storage::vfs;
+
+    let (pattern, filename) = match args.find(' ') {
+        Some(pos) => (&args[..pos], args[pos + 1..].trim()),
+        None => {
+            console::println("Usage: grep <pattern> <file>");
+            return;
+        }
+    };
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    match vfs::read_file(filename) {
+        Some(data) => {
+            match core::str::from_utf8(&data) {
+                Ok(text) => {
+                    let pattern_lower = pattern.to_lowercase();
+                    let mut count = 0;
+                    for (i, line) in text.lines().enumerate() {
+                        if line.to_lowercase().contains(&pattern_lower) {
+                            let mut s = String::new();
+                            console::set_color(0x55, 0xFF, 0x55);
+                            write!(s, "{:>4}: ", i + 1).ok();
+                            console::print(&s);
+                            console::set_color(0xFF, 0xFF, 0xFF);
+                            console::println(line);
+                            count += 1;
+                        }
+                    }
+                    if count == 0 {
+                        console::set_color(0xAA, 0xAA, 0xAA);
+                        console::println("(no matches)");
+                        console::set_color(0xFF, 0xFF, 0xFF);
+                    } else {
+                        let mut s = String::new();
+                        console::set_color(0xAA, 0xAA, 0xAA);
+                        write!(s, "\n{} matching line(s)", count).ok();
+                        console::println(&s);
+                        console::set_color(0xFF, 0xFF, 0xFF);
+                    }
+                }
+                Err(_) => {
+                    console::set_color(0xFF, 0x55, 0x55);
+                    console::println("grep: binary file, cannot search");
+                    console::set_color(0xFF, 0xFF, 0xFF);
+                }
+            }
+        }
+        None => {
+            let mut s = String::new();
+            write!(s, "grep: '{}': No such file", filename).ok();
+            console::set_color(0xFF, 0x55, 0x55);
+            console::println(&s);
+            console::set_color(0xFF, 0xFF, 0xFF);
+        }
+    }
+}
+
+fn cmd_find(args: &str) {
+    use crate::storage::vfs;
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    let pattern = args.trim();
+    if pattern.is_empty() {
+        console::println("Usage: find <name-pattern>");
+        return;
+    }
+
+    let pattern_lower = pattern.to_lowercase();
+    let mut count = 0;
+
+    fn search_recursive(path: &str, pattern: &str, count: &mut usize) {
+        use crate::storage::vfs;
+        if let Some(entries) = vfs::list_dir(path) {
+            for entry in &entries {
+                let full_path = if path == "/" {
+                    alloc::format!("/{}", entry.name)
+                } else {
+                    alloc::format!("{}/{}", path, entry.name)
+                };
+                if entry.name.to_lowercase().contains(pattern) {
+                    if entry.is_dir {
+                        console::set_color(0x55, 0xBB, 0xFF);
+                    } else {
+                        console::set_color(0xFF, 0xFF, 0xFF);
+                    }
+                    console::println(&full_path);
+                    *count += 1;
+                }
+                if entry.is_dir {
+                    search_recursive(&full_path, pattern, count);
+                }
+            }
+        }
+    }
+
+    search_recursive("/", &pattern_lower, &mut count);
+
+    if count == 0 {
+        console::set_color(0xAA, 0xAA, 0xAA);
+        console::println("(no files found)");
+    } else {
+        let mut s = String::new();
+        console::set_color(0xAA, 0xAA, 0xAA);
+        write!(s, "\n{} file(s) found", count).ok();
+        console::println(&s);
+    }
+    console::set_color(0xFF, 0xFF, 0xFF);
+}
+
+fn cmd_wc(args: &str) {
+    use crate::storage::vfs;
+
+    if args.is_empty() {
+        console::println("Usage: wc <file>");
+        return;
+    }
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    match vfs::read_file(args) {
+        Some(data) => {
+            let text = core::str::from_utf8(&data).unwrap_or("");
+            let lines = text.lines().count();
+            let words = text.split_whitespace().count();
+            let chars = text.len();
+            let mut s = String::new();
+            write!(s, "  {:>6} lines  {:>6} words  {:>6} bytes  {}", lines, words, chars, args).ok();
+            console::println(&s);
+        }
+        None => {
+            let mut s = String::new();
+            write!(s, "wc: '{}': No such file", args).ok();
+            console::set_color(0xFF, 0x55, 0x55);
+            console::println(&s);
+            console::set_color(0xFF, 0xFF, 0xFF);
+        }
+    }
+}
+
+fn cmd_head(args: &str) {
+    use crate::storage::vfs;
+
+    let parts: alloc::vec::Vec<&str> = args.split_whitespace().collect();
+    if parts.is_empty() {
+        console::println("Usage: head <file> [n]");
+        return;
+    }
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    let filename = parts[0];
+    let count = parts.get(1).and_then(|s| s.parse::<usize>().ok()).unwrap_or(10);
+
+    match vfs::read_file(filename) {
+        Some(data) => {
+            let text = core::str::from_utf8(&data).unwrap_or("(binary)");
+            for (i, line) in text.lines().enumerate() {
+                if i >= count { break; }
+                console::println(line);
+            }
+        }
+        None => {
+            let mut s = String::new();
+            write!(s, "head: '{}': No such file", filename).ok();
+            console::set_color(0xFF, 0x55, 0x55);
+            console::println(&s);
+            console::set_color(0xFF, 0xFF, 0xFF);
+        }
+    }
+}
+
+fn cmd_tail(args: &str) {
+    use crate::storage::vfs;
+
+    let parts: alloc::vec::Vec<&str> = args.split_whitespace().collect();
+    if parts.is_empty() {
+        console::println("Usage: tail <file> [n]");
+        return;
+    }
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    let filename = parts[0];
+    let count = parts.get(1).and_then(|s| s.parse::<usize>().ok()).unwrap_or(10);
+
+    match vfs::read_file(filename) {
+        Some(data) => {
+            let text = core::str::from_utf8(&data).unwrap_or("(binary)");
+            let lines: alloc::vec::Vec<&str> = text.lines().collect();
+            let start = lines.len().saturating_sub(count);
+            for line in &lines[start..] {
+                console::println(line);
+            }
+        }
+        None => {
+            let mut s = String::new();
+            write!(s, "tail: '{}': No such file", filename).ok();
+            console::set_color(0xFF, 0x55, 0x55);
+            console::println(&s);
+            console::set_color(0xFF, 0xFF, 0xFF);
+        }
+    }
+}
+
+fn cmd_touch(args: &str) {
+    use crate::storage::vfs;
+
+    if args.is_empty() {
+        console::println("Usage: touch <file>");
+        return;
+    }
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    if vfs::exists(args) {
+        console::println("File already exists.");
+        return;
+    }
+
+    if vfs::write_file(args, &[]) {
+        let mut s = String::new();
+        write!(s, "Created '{}'", args).ok();
+        console::set_color(0x55, 0xFF, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+    } else {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("touch: failed to create file");
+        console::set_color(0xFF, 0xFF, 0xFF);
+    }
+}
+
+fn cmd_stat(args: &str) {
+    use crate::storage::vfs;
+
+    if args.is_empty() {
+        console::println("Usage: stat <file|dir>");
+        return;
+    }
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    if !vfs::exists(args) {
+        let mut s = String::new();
+        write!(s, "stat: '{}': No such file or directory", args).ok();
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    let mut s = String::new();
+    console::set_color(0xFF, 0xFF, 0x55);
+    write!(s, "  File: {}", args).ok();
+    console::println(&s);
+    console::set_color(0xFF, 0xFF, 0xFF);
+
+    if vfs::is_dir(args) {
+        console::println("  Type: directory");
+        if let Some(entries) = vfs::list_dir(args) {
+            s.clear();
+            write!(s, "  Contents: {} entries", entries.len()).ok();
+            console::println(&s);
+        }
+    } else {
+        console::println("  Type: regular file");
+        if let Some(data) = vfs::read_file(args) {
+            s.clear();
+            write!(s, "  Size: {} bytes", data.len()).ok();
+            console::println(&s);
+            // Check if text or binary
+            let is_text = data.iter().all(|&b| b == b'\n' || b == b'\r' || b == b'\t' || (b >= 0x20 && b < 0x7F));
+            console::println(if is_text { "  Kind: text" } else { "  Kind: binary" });
+        }
+    }
+}
+
+fn cmd_tree(args: &str) {
+    use crate::storage::vfs;
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    let path = if args.is_empty() { "." } else { args };
+    console::set_color(0x55, 0xBB, 0xFF);
+    console::println(path);
+    console::set_color(0xFF, 0xFF, 0xFF);
+
+    let mut file_count = 0usize;
+    let mut dir_count = 0usize;
+
+    fn print_tree(path: &str, prefix: &str, fc: &mut usize, dc: &mut usize) {
+        use crate::storage::vfs;
+        if let Some(entries) = vfs::list_dir(path) {
+            let len = entries.len();
+            for (i, entry) in entries.iter().enumerate() {
+                let is_last = i == len - 1;
+                let connector = if is_last { "└── " } else { "├── " };
+                let mut line = String::new();
+                write!(line, "{}{}", prefix, connector).ok();
+
+                if entry.is_dir {
+                    *dc += 1;
+                    console::set_color(0x55, 0xBB, 0xFF);
+                    write!(line, "{}/", entry.name).ok();
+                    console::println(&line);
+                    console::set_color(0xFF, 0xFF, 0xFF);
+
+                    let new_prefix = alloc::format!("{}{}", prefix, if is_last { "    " } else { "│   " });
+                    let child_path = if path == "/" || path == "." {
+                        alloc::format!("/{}", entry.name)
+                    } else {
+                        alloc::format!("{}/{}", path, entry.name)
+                    };
+                    print_tree(&child_path, &new_prefix, fc, dc);
+                } else {
+                    *fc += 1;
+                    write!(line, "{}", entry.name).ok();
+                    console::println(&line);
+                }
+            }
+        }
+    }
+
+    print_tree(path, "", &mut file_count, &mut dir_count);
+
+    let mut s = String::new();
+    console::set_color(0xAA, 0xAA, 0xAA);
+    write!(s, "\n{} directories, {} files", dir_count, file_count).ok();
+    console::println(&s);
+    console::set_color(0xFF, 0xFF, 0xFF);
+}
+
+fn cmd_cal() {
+    use crate::hal::rtc;
+
+    let dt = rtc::read_datetime();
+    let year = dt.year as i32;
+    let month = dt.month as u32;
+    let day = dt.day as u32;
+
+    // Month names
+    let month_names = [
+        "", "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
+    ];
+
+    let month_name = if (month as usize) < month_names.len() {
+        month_names[month as usize]
+    } else {
+        "?"
+    };
+
+    let mut header = String::new();
+    write!(header, "    {} {}", month_name, year).ok();
+    console::set_color(0xFF, 0xFF, 0x55);
+    console::println(&header);
+    console::set_color(0xFF, 0xFF, 0xFF);
+    console::println(" Su Mo Tu We Th Fr Sa");
+
+    // Days in month
+    let days_in = match month {
+        1 => 31, 2 => if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) { 29 } else { 28 },
+        3 => 31, 4 => 30, 5 => 31, 6 => 30,
+        7 => 31, 8 => 31, 9 => 30, 10 => 31, 11 => 30, 12 => 31,
+        _ => 30,
+    };
+
+    // Zeller's congruence for first day of month
+    let (y, m) = if month <= 2 { (year - 1, month + 12) } else { (year, month) };
+    let q = 1;
+    let k = y % 100;
+    let j = y / 100;
+    let h = (q + (13 * (m as i32 + 1)) / 5 + k + k / 4 + j / 4 + 5 * j) % 7;
+    let first_dow = ((h + 6) % 7) as u32; // 0=Sunday
+
+    let mut line = String::new();
+    // Pad first week
+    for _ in 0..first_dow {
+        write!(line, "   ").ok();
+    }
+
+    let mut dow = first_dow;
+    for d in 1..=days_in {
+        if d == day {
+            console::print(&line);
+            line.clear();
+            console::set_color(0x00, 0xFF, 0x00);
+            write!(line, "{:>3}", d).ok();
+            console::print(&line);
+            console::set_color(0xFF, 0xFF, 0xFF);
+            line.clear();
+        } else {
+            write!(line, "{:>3}", d).ok();
+        }
+        dow += 1;
+        if dow >= 7 {
+            console::println(&line);
+            line.clear();
+            dow = 0;
+        }
+    }
+    if !line.is_empty() {
+        console::println(&line);
+    }
+}
+
+fn cmd_fortune() {
+    static FORTUNES: &[&str] = &[
+        "The best OS is the one you write yourself.",
+        "In kernel space, no one can hear you segfault.",
+        "Keep calm and write more drivers.",
+        "A wise kernel never panics... unless asked politely.",
+        "Interrupts are just the universe's way of saying 'hello'.",
+        "Every lock has its deadlock, and every deadlock its lesson.",
+        "To understand recursion, first understand recursion.",
+        "The stack grows down, but ambition grows up.",
+        "There are only two hard things: cache invalidation and naming things.",
+        "Memory is the mind of the machine; don't waste it.",
+        "An OS without a shell is like a ship without a wheel.",
+        "The PIT ticks 1000 times per second. What do you do with yours?",
+        "If it compiles, ship it. (But maybe test first.)",
+        "Kernel development: where 'hello world' takes 10,000 lines.",
+        "A page fault a day keeps the users away.",
+        "Perfection is achieved not when there is nothing more to add, but when there is nothing left to panic about.",
+    ];
+
+    let tick = ticks() as usize;
+    let idx = tick % FORTUNES.len();
+    console::set_color(0xFF, 0xFF, 0x55);
+    console::print("  ");
+    console::println(FORTUNES[idx]);
+    console::set_color(0xFF, 0xFF, 0xFF);
+}
+
+fn cmd_banner(args: &str) {
+    if args.is_empty() {
+        console::println("Usage: banner <text>");
+        return;
+    }
+
+    // Simple block-letter ASCII art for uppercase letters
+    let text = args.to_uppercase();
+    // Each character is 5 lines tall, 5 chars wide
+    let patterns: &[(char, [&str; 5])] = &[
+        ('A', [" ### ", "#   #", "#####", "#   #", "#   #"]),
+        ('B', ["#### ", "#   #", "#### ", "#   #", "#### "]),
+        ('C', [" ### ", "#    ", "#    ", "#    ", " ### "]),
+        ('D', ["#### ", "#   #", "#   #", "#   #", "#### "]),
+        ('E', ["#####", "#    ", "###  ", "#    ", "#####"]),
+        ('F', ["#####", "#    ", "###  ", "#    ", "#    "]),
+        ('G', [" ### ", "#    ", "# ## ", "#   #", " ### "]),
+        ('H', ["#   #", "#   #", "#####", "#   #", "#   #"]),
+        ('I', ["#####", "  #  ", "  #  ", "  #  ", "#####"]),
+        ('J', ["#####", "   # ", "   # ", "#  # ", " ## "]),
+        ('K', ["#   #", "#  # ", "###  ", "#  # ", "#   #"]),
+        ('L', ["#    ", "#    ", "#    ", "#    ", "#####"]),
+        ('M', ["#   #", "## ##", "# # #", "#   #", "#   #"]),
+        ('N', ["#   #", "##  #", "# # #", "#  ##", "#   #"]),
+        ('O', [" ### ", "#   #", "#   #", "#   #", " ### "]),
+        ('P', ["#### ", "#   #", "#### ", "#    ", "#    "]),
+        ('Q', [" ### ", "#   #", "# # #", "#  # ", " ## #"]),
+        ('R', ["#### ", "#   #", "#### ", "#  # ", "#   #"]),
+        ('S', [" ### ", "#    ", " ### ", "    #", " ### "]),
+        ('T', ["#####", "  #  ", "  #  ", "  #  ", "  #  "]),
+        ('U', ["#   #", "#   #", "#   #", "#   #", " ### "]),
+        ('V', ["#   #", "#   #", "#   #", " # # ", "  #  "]),
+        ('W', ["#   #", "#   #", "# # #", "## ##", "#   #"]),
+        ('X', ["#   #", " # # ", "  #  ", " # # ", "#   #"]),
+        ('Y', ["#   #", " # # ", "  #  ", "  #  ", "  #  "]),
+        ('Z', ["#####", "   # ", "  #  ", " #   ", "#####"]),
+        ('0', [" ### ", "#   #", "#   #", "#   #", " ### "]),
+        ('1', ["  #  ", " ##  ", "  #  ", "  #  ", " ### "]),
+        ('!', ["  #  ", "  #  ", "  #  ", "     ", "  #  "]),
+        (' ', ["     ", "     ", "     ", "     ", "     "]),
+    ];
+
+    console::set_color(0x55, 0xFF, 0xFF);
+    for row in 0..5 {
+        let mut line = String::new();
+        for ch in text.chars() {
+            let pattern = patterns.iter().find(|(c, _)| *c == ch);
+            if let Some((_, rows)) = pattern {
+                write!(line, "{}  ", rows[row]).ok();
+            } else {
+                write!(line, "     ").ok();
+            }
+        }
+        console::println(&line);
+    }
+    console::set_color(0xFF, 0xFF, 0xFF);
+}
+
+fn cmd_env(args: &str) {
+    env_init();
+    let args = args.trim();
+    if args.is_empty() {
+        // Show all env vars
+        let env = ENV_VARS.lock();
+        if let Some(ref map) = *env {
+            console::set_color(0xFF, 0xFF, 0x55);
+            console::println("Environment Variables:");
+            console::set_color(0xFF, 0xFF, 0xFF);
+            for (k, v) in map.iter() {
+                let mut s = String::new();
+                write!(s, "  {}={}", k, v).ok();
+                console::println(&s);
+            }
+        }
+    } else {
+        // set KEY=VALUE
+        if let Some(eq_pos) = args.find('=') {
+            let key = args[..eq_pos].trim();
+            let value = args[eq_pos + 1..].trim();
+            env_set(key, value);
+            let mut s = String::new();
+            write!(s, "{}={}", key, value).ok();
+            console::println(&s);
+        } else {
+            // Show single var
+            match env_get(args) {
+                Some(val) => {
+                    let mut s = String::new();
+                    write!(s, "{}={}", args, val).ok();
+                    console::println(&s);
+                }
+                None => {
+                    let mut s = String::new();
+                    write!(s, "'{}' not set", args).ok();
+                    console::println(&s);
+                }
+            }
+        }
+    }
+}
+
+fn cmd_unset(args: &str) {
+    if args.is_empty() {
+        console::println("Usage: unset <variable>");
+        return;
+    }
+    env_remove(args.trim());
+    console::set_color(0x55, 0xFF, 0x55);
+    let mut s = String::new();
+    write!(s, "Unset '{}'", args.trim()).ok();
+    console::println(&s);
+    console::set_color(0xFF, 0xFF, 0xFF);
+}
+
+fn cmd_append(args: &str) {
+    use crate::storage::vfs;
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    let (filename, content) = match args.find(' ') {
+        Some(pos) => (&args[..pos], args[pos + 1..].trim()),
+        None => {
+            console::println("Usage: append <filename> <text>");
+            return;
+        }
+    };
+
+    // Read existing content, append, write back
+    let mut existing = vfs::read_file(filename).unwrap_or_default();
+    existing.extend_from_slice(content.as_bytes());
+    existing.push(b'\n');
+
+    if vfs::write_file(filename, &existing) {
+        let mut s = String::new();
+        write!(s, "Appended {} bytes to '{}'", content.len() + 1, filename).ok();
+        console::set_color(0x55, 0xFF, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+    } else {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("append: failed");
+        console::set_color(0xFF, 0xFF, 0xFF);
+    }
+}
+
+fn cmd_rename(args: &str) {
+    use crate::storage::vfs;
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    let (src, dst) = match args.find(' ') {
+        Some(pos) => (&args[..pos], args[pos + 1..].trim()),
+        None => {
+            console::println("Usage: rename <source> <destination>");
+            return;
+        }
+    };
+
+    // Rename = copy + delete
+    if vfs::copy_file(src, dst) {
+        if vfs::delete(src) {
+            let mut s = String::new();
+            write!(s, "Renamed '{}' -> '{}'", src, dst).ok();
+            console::set_color(0x55, 0xFF, 0x55);
+            console::println(&s);
+            console::set_color(0xFF, 0xFF, 0xFF);
+        } else {
+            console::set_color(0xFF, 0x55, 0x55);
+            console::println("rename: copied but failed to delete source");
+            console::set_color(0xFF, 0xFF, 0xFF);
+        }
+    } else {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("rename: failed to copy");
+        console::set_color(0xFF, 0xFF, 0xFF);
+    }
+}
+
+fn cmd_xxd(args: &str) {
+    use crate::storage::vfs;
+
+    if args.is_empty() {
+        console::println("Usage: xxd <file>");
+        return;
+    }
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    match vfs::read_file(args) {
+        Some(data) => {
+            let limit = data.len().min(512);
+            for (i, chunk) in data[..limit].chunks(16).enumerate() {
+                let mut s = String::new();
+                console::set_color(0xAA, 0xAA, 0xAA);
+                write!(s, "{:08X}: ", i * 16).ok();
+                console::print(&s);
+                s.clear();
+
+                console::set_color(0xFF, 0xFF, 0xFF);
+                for (j, b) in chunk.iter().enumerate() {
+                    write!(s, "{:02X}", b).ok();
+                    if j % 2 == 1 { write!(s, " ").ok(); }
+                }
+                // Pad if short
+                for _ in chunk.len()..16 {
+                    write!(s, "  ").ok();
+                }
+                write!(s, " ").ok();
+
+                // ASCII representation
+                console::set_color(0x55, 0xFF, 0x55);
+                for b in chunk {
+                    if *b >= 0x20 && *b < 0x7F {
+                        write!(s, "{}", *b as char).ok();
+                    } else {
+                        write!(s, ".").ok();
+                    }
+                }
+                console::println(&s);
+            }
+            console::set_color(0xFF, 0xFF, 0xFF);
+            if data.len() > limit {
+                let mut s = String::new();
+                write!(s, "  ... ({} more bytes)", data.len() - limit).ok();
+                console::set_color(0xAA, 0xAA, 0xAA);
+                console::println(&s);
+                console::set_color(0xFF, 0xFF, 0xFF);
+            }
+        }
+        None => {
+            let mut s = String::new();
+            write!(s, "xxd: '{}': No such file", args).ok();
+            console::set_color(0xFF, 0x55, 0x55);
+            console::println(&s);
+            console::set_color(0xFF, 0xFF, 0xFF);
+        }
+    }
+}
+
+// ============================================================================
+// In-Shell Text Editor
+// ============================================================================
+
+fn cmd_edit(args: &str) {
+    use crate::storage::vfs;
+    use alloc::vec::Vec;
+
+    if args.is_empty() {
+        console::println("Usage: edit <file>");
+        return;
+    }
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    let filename = args.trim();
+
+    // Load existing file content or start empty
+    let initial = vfs::read_file(filename).unwrap_or_default();
+    let text = core::str::from_utf8(&initial).unwrap_or("");
+    let mut lines: Vec<String> = if text.is_empty() {
+        alloc::vec![String::new()]
+    } else {
+        text.lines().map(|l| l.into()).collect()
+    };
+    if lines.is_empty() { lines.push(String::new()); }
+
+    let mut cursor_row: usize = 0;
+    let mut cursor_col: usize = 0;
+    let mut scroll_offset: usize = 0;
+    let mut modified = false;
+    let mut running = true;
+    let mut message = String::from("Ctrl+S=Save  Ctrl+Q=Quit  Ctrl+G=Goto");
+
+    let (screen_cols, screen_rows) = console::dimensions();
+    let edit_rows = screen_rows.saturating_sub(2); // Reserve for header + footer
+
+    while running {
+        // Draw editor
+        console::clear();
+
+        // Header bar
+        console::set_color(0x00, 0x00, 0x00);
+        console::set_bg_color(0xAA, 0xAA, 0xAA);
+        let mut header = String::new();
+        write!(header, " EDIT: {} {} [{}/{}]",
+            filename,
+            if modified { "(modified)" } else { "" },
+            cursor_row + 1,
+            lines.len()
+        ).ok();
+        while header.len() < screen_cols { header.push(' '); }
+        console::print(&header);
+        console::print("\n");
+
+        // Reset colors for content
+        console::set_color(0xFF, 0xFF, 0xFF);
+        console::set_bg_color(0x00, 0x00, 0x00);
+
+        // Draw visible lines
+        for i in 0..edit_rows {
+            let line_idx = scroll_offset + i;
+            if line_idx < lines.len() {
+                let line = &lines[line_idx];
+                let display = if line.len() > screen_cols - 5 {
+                    &line[..screen_cols - 5]
+                } else {
+                    line.as_str()
+                };
+                // Line number
+                let mut num = String::new();
+                console::set_color(0x55, 0x55, 0x55);
+                write!(num, "{:>3} ", line_idx + 1).ok();
+                console::print(&num);
+                console::set_color(0xFF, 0xFF, 0xFF);
+                console::println(display);
+            } else {
+                console::set_color(0x55, 0x55, 0x55);
+                console::println("  ~ ");
+                console::set_color(0xFF, 0xFF, 0xFF);
+            }
+        }
+
+        // Footer / status bar
+        console::set_color(0x00, 0x00, 0x00);
+        console::set_bg_color(0xAA, 0xAA, 0xAA);
+        let mut footer = String::new();
+        write!(footer, " {}", message).ok();
+        while footer.len() < screen_cols { footer.push(' '); }
+        console::print(&footer);
+
+        // Reset colors
+        console::set_color(0xFF, 0xFF, 0xFF);
+        console::set_bg_color(0x00, 0x00, 0x00);
+
+        // Wait for input
+        let event = loop {
+            if let Some(e) = keyboard::try_read_char() {
+                break e;
+            }
+            unsafe { core::arch::asm!("hlt"); }
+        };
+
+        message.clear();
+        write!(message, "Ctrl+S=Save  Ctrl+Q=Quit  Ctrl+G=Goto").ok();
+
+        match event.ascii {
+            // Ctrl+S — save
+            0x13 => {
+                let mut content = String::new();
+                for (i, line) in lines.iter().enumerate() {
+                    content.push_str(line);
+                    if i < lines.len() - 1 {
+                        content.push('\n');
+                    }
+                }
+                if vfs::write_file(filename, content.as_bytes()) {
+                    modified = false;
+                    message.clear();
+                    write!(message, "Saved {} bytes to '{}'", content.len(), filename).ok();
+                    crate::hal::speaker::beep(880, 50);
+                } else {
+                    message.clear();
+                    write!(message, "ERROR: Failed to save!").ok();
+                    crate::hal::speaker::error_beep();
+                }
+            }
+
+            // Ctrl+Q — quit
+            0x11 => {
+                if modified {
+                    message.clear();
+                    write!(message, "Unsaved changes! Press Ctrl+Q again to confirm quit.").ok();
+                    // Redraw with message, wait for next key
+                    console::clear();
+                    console::set_color(0xFF, 0xFF, 0x55);
+                    console::println(&message);
+                    console::set_color(0xFF, 0xFF, 0xFF);
+
+                    let confirm = loop {
+                        if let Some(e) = keyboard::try_read_char() { break e; }
+                        unsafe { core::arch::asm!("hlt"); }
+                    };
+                    if confirm.ascii == 0x11 {
+                        running = false;
+                    }
+                } else {
+                    running = false;
+                }
+            }
+
+            // Ctrl+G — goto line
+            0x07 => {
+                message.clear();
+                write!(message, "Goto line (type number then Enter):").ok();
+                // Simple line number input — for now just jump to top/bottom
+                cursor_row = 0;
+                cursor_col = 0;
+                scroll_offset = 0;
+            }
+
+            // Enter — insert new line
+            b'\n' => {
+                let current = &lines[cursor_row];
+                let rest = current[cursor_col..].to_string();
+                lines[cursor_row] = current[..cursor_col].to_string();
+                lines.insert(cursor_row + 1, rest);
+                cursor_row += 1;
+                cursor_col = 0;
+                modified = true;
+            }
+
+            // Backspace
+            0x08 => {
+                if cursor_col > 0 {
+                    lines[cursor_row].remove(cursor_col - 1);
+                    cursor_col -= 1;
+                    modified = true;
+                } else if cursor_row > 0 {
+                    let current_line = lines.remove(cursor_row);
+                    cursor_row -= 1;
+                    cursor_col = lines[cursor_row].len();
+                    lines[cursor_row].push_str(&current_line);
+                    modified = true;
+                }
+            }
+
+            // Tab
+            b'\t' => {
+                lines[cursor_row].insert_str(cursor_col, "    ");
+                cursor_col += 4;
+                modified = true;
+            }
+
+            // Printable character
+            c @ 0x20..=0x7E => {
+                lines[cursor_row].insert(cursor_col, c as char);
+                cursor_col += 1;
+                modified = true;
+            }
+
+            _ => {
+                // Arrow keys
+                match event.key {
+                    KeyCode::Up => {
+                        if cursor_row > 0 {
+                            cursor_row -= 1;
+                            cursor_col = cursor_col.min(lines[cursor_row].len());
+                        }
+                    }
+                    KeyCode::Down => {
+                        if cursor_row < lines.len() - 1 {
+                            cursor_row += 1;
+                            cursor_col = cursor_col.min(lines[cursor_row].len());
+                        }
+                    }
+                    KeyCode::Left => {
+                        if cursor_col > 0 {
+                            cursor_col -= 1;
+                        }
+                    }
+                    KeyCode::Right => {
+                        if cursor_col < lines[cursor_row].len() {
+                            cursor_col += 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Adjust scroll
+        if cursor_row < scroll_offset {
+            scroll_offset = cursor_row;
+        }
+        if cursor_row >= scroll_offset + edit_rows {
+            scroll_offset = cursor_row - edit_rows + 1;
+        }
+    }
+
+    // Restore console
+    console::clear();
+    console::set_color(0xFF, 0xFF, 0xFF);
+}
+
+// ============================================================================
+// Startup Script Support
+// ============================================================================
+
+fn run_autoexec() {
+    use crate::storage::vfs;
+    use crate::hal::virtio_blk;
+
+    if !virtio_blk::is_available() {
+        return;
+    }
+
+    // Load hostname
+    if let Some(data) = vfs::read_file("/system/hostname.cfg") {
+        if let Ok(name) = core::str::from_utf8(&data) {
+            let name = name.trim();
+            if !name.is_empty() {
+                set_hostname_value(name);
+            }
+        }
+    }
+
+    // Run autoexec script
+    if let Some(data) = vfs::read_file("/system/autoexec.cfg") {
+        if let Ok(script) = core::str::from_utf8(&data) {
+            log::info!("Running /system/autoexec.cfg");
+            for line in script.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                execute_command(line);
+            }
+        }
     }
 }

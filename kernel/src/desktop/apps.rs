@@ -40,6 +40,7 @@ pub enum AppId {
     Calculator,
     About,
     Terminal,
+    FileBrowser,
 }
 
 /// Application state — each app stores its own data here.
@@ -50,6 +51,7 @@ pub enum AppState {
     Calculator(CalcState),
     About(AboutState),
     Terminal(TerminalState),
+    FileBrowser(FileBrowserState),
 }
 
 impl AppState {
@@ -61,6 +63,7 @@ impl AppState {
             AppId::Calculator  => AppState::Calculator(CalcState::new()),
             AppId::About       => AppState::About(AboutState::new()),
             AppId::Terminal    => AppState::Terminal(TerminalState::new()),
+            AppId::FileBrowser => AppState::FileBrowser(FileBrowserState::new()),
         }
     }
 }
@@ -78,6 +81,7 @@ pub fn init_app(win: &mut Window) {
         AppState::Calculator(_) => {}
         AppState::About(_) => {}
         AppState::Terminal(state) => terminal_init(state),
+        AppState::FileBrowser(state) => filebrowser_init(state),
     }
 }
 
@@ -90,6 +94,7 @@ pub fn draw_app(win: &Window) {
         AppState::Calculator(state) => calc_draw(win, state),
         AppState::About(state) => about_draw(win, state),
         AppState::Terminal(state) => terminal_draw(win, state),
+        AppState::FileBrowser(state) => filebrowser_draw(win, state),
     }
 }
 
@@ -102,6 +107,7 @@ pub fn handle_app_input(win: &mut Window, event: &KeyEvent) -> InputResult {
         AppState::Calculator(state) => calc_input(state, event),
         AppState::About(_) => InputResult::Continue,
         AppState::Terminal(state) => terminal_input(state, event),
+        AppState::FileBrowser(state) => filebrowser_input(state, event),
     }
 }
 
@@ -373,6 +379,9 @@ pub struct NotepadState {
     cursor_row: usize,
     cursor_col: usize,
     scroll: usize,
+    filename: String,
+    modified: bool,
+    status_msg: String,
 }
 
 impl NotepadState {
@@ -382,6 +391,9 @@ impl NotepadState {
             cursor_row: 0,
             cursor_col: 0,
             scroll: 0,
+            filename: String::from("/notepad.txt"),
+            modified: false,
+            status_msg: String::from("Ctrl+S:Save  Ctrl+O:Open  Ctrl+N:New"),
         }
     }
 }
@@ -392,23 +404,38 @@ fn notepad_draw(win: &Window, state: &NotepadState) {
     let cw = win.client_width();
     let ch = win.client_height();
 
-    let visible_lines = (ch / CHAR_HEIGHT) as usize;
+    // Status bar at top
+    fill_rect(cx, cy, cw, CHAR_HEIGHT + 2, Color::rgb(0xE0, 0xE0, 0xE0));
+    let mut status = String::new();
+    write!(status, " {} {} L:{} C:{}", state.filename,
+        if state.modified { "*" } else { "" },
+        state.cursor_row + 1, state.cursor_col + 1
+    ).ok();
+    draw_text(cx + 2, cy + 1, &status, Color::BLACK);
+
+    // Status message at bottom
+    let status_y = cy + ch - CHAR_HEIGHT - 2;
+    fill_rect(cx, status_y, cw, CHAR_HEIGHT + 2, Color::rgb(0xE0, 0xE0, 0xE0));
+    draw_text(cx + 2, status_y + 1, &state.status_msg, Color::rgb(0x40, 0x40, 0x40));
+
+    let content_y = cy + CHAR_HEIGHT + 4;
+    let content_h = ch.saturating_sub(CHAR_HEIGHT * 2 + 8);
+    let visible_lines = (content_h / CHAR_HEIGHT) as usize;
     let max_cols = (cw / CHAR_WIDTH) as usize;
 
     for (i, line) in state.lines.iter().skip(state.scroll).take(visible_lines).enumerate() {
-        let y = cy + i as u32 * CHAR_HEIGHT;
+        let y = content_y + i as u32 * CHAR_HEIGHT;
         let display: &str = if line.len() > max_cols { &line[..max_cols] } else { line };
         draw_text(cx, y, display, Color::BLACK);
     }
 
-    // Draw cursor (blinking would require a timer — let's just draw a block)
+    // Draw cursor
     let cursor_screen_row = state.cursor_row.saturating_sub(state.scroll);
     if cursor_screen_row < visible_lines {
         let cursor_x = cx + state.cursor_col as u32 * CHAR_WIDTH;
-        let cursor_y = cy + cursor_screen_row as u32 * CHAR_HEIGHT;
+        let cursor_y = content_y + cursor_screen_row as u32 * CHAR_HEIGHT;
         fill_rect(cursor_x, cursor_y, CHAR_WIDTH, CHAR_HEIGHT, Color::BLACK);
 
-        // If there's a character under cursor, draw it in white
         if let Some(line) = state.lines.get(state.cursor_row) {
             if state.cursor_col < line.len() {
                 let ch = &line[state.cursor_col..state.cursor_col + 1];
@@ -475,10 +502,11 @@ fn notepad_input(state: &mut NotepadState, event: &KeyEvent) -> InputResult {
             if let Some(line) = state.lines.get_mut(state.cursor_row) {
                 if state.cursor_col < line.len() {
                     line.remove(state.cursor_col);
+                    state.modified = true;
                 } else if state.cursor_row + 1 < state.lines.len() {
-                    // Join with next line
                     let next = state.lines.remove(state.cursor_row + 1);
                     state.lines[state.cursor_row].push_str(&next);
+                    state.modified = true;
                 }
             }
             return InputResult::Redraw;
@@ -488,6 +516,71 @@ fn notepad_input(state: &mut NotepadState, event: &KeyEvent) -> InputResult {
 
     // Check ASCII
     match event.ascii {
+        // Ctrl+S — save to VFS
+        0x13 => {
+            use crate::storage::vfs;
+            if vfs::is_ready() {
+                let mut content = String::new();
+                for (i, line) in state.lines.iter().enumerate() {
+                    content.push_str(line);
+                    if i < state.lines.len() - 1 {
+                        content.push('\n');
+                    }
+                }
+                if vfs::write_file(&state.filename, content.as_bytes()) {
+                    state.modified = false;
+                    state.status_msg.clear();
+                    write!(state.status_msg, "Saved {} bytes to {}", content.len(), state.filename).ok();
+                } else {
+                    state.status_msg.clear();
+                    write!(state.status_msg, "ERROR: Failed to save!").ok();
+                }
+            } else {
+                state.status_msg.clear();
+                write!(state.status_msg, "No filesystem mounted!").ok();
+            }
+            InputResult::Redraw
+        }
+        // Ctrl+O — open from VFS
+        0x0F => {
+            use crate::storage::vfs;
+            if vfs::is_ready() {
+                if let Some(data) = vfs::read_file(&state.filename) {
+                    let text = core::str::from_utf8(&data).unwrap_or("");
+                    state.lines = if text.is_empty() {
+                        alloc::vec![String::new()]
+                    } else {
+                        text.lines().map(|l| String::from(l)).collect()
+                    };
+                    if state.lines.is_empty() { state.lines.push(String::new()); }
+                    state.cursor_row = 0;
+                    state.cursor_col = 0;
+                    state.scroll = 0;
+                    state.modified = false;
+                    state.status_msg.clear();
+                    write!(state.status_msg, "Opened {}", state.filename).ok();
+                } else {
+                    state.status_msg.clear();
+                    write!(state.status_msg, "File not found: {}", state.filename).ok();
+                }
+            } else {
+                state.status_msg.clear();
+                write!(state.status_msg, "No filesystem mounted!").ok();
+            }
+            InputResult::Redraw
+        }
+        // Ctrl+N — new file
+        0x0E => {
+            state.lines = alloc::vec![String::new()];
+            state.cursor_row = 0;
+            state.cursor_col = 0;
+            state.scroll = 0;
+            state.modified = false;
+            state.filename = String::from("/notepad.txt");
+            state.status_msg.clear();
+            write!(state.status_msg, "New file").ok();
+            InputResult::Redraw
+        }
         b'\n' => {
             // Enter — split line at cursor
             let current_line = state.lines.get(state.cursor_row).cloned().unwrap_or_default();
@@ -496,6 +589,7 @@ fn notepad_input(state: &mut NotepadState, event: &KeyEvent) -> InputResult {
             state.lines.insert(state.cursor_row + 1, String::from(right));
             state.cursor_row += 1;
             state.cursor_col = 0;
+            state.modified = true;
             InputResult::Redraw
         }
         0x08 => {
@@ -514,6 +608,7 @@ fn notepad_input(state: &mut NotepadState, event: &KeyEvent) -> InputResult {
                 state.cursor_col = state.lines[state.cursor_row].len();
                 state.lines[state.cursor_row].push_str(&current);
             }
+            state.modified = true;
             InputResult::Redraw
         }
         c if c >= 0x20 && c < 0x7F => {
@@ -528,6 +623,7 @@ fn notepad_input(state: &mut NotepadState, event: &KeyEvent) -> InputResult {
                 line.insert(state.cursor_col, c as char);
             }
             state.cursor_col += 1;
+            state.modified = true;
             InputResult::Redraw
         }
         _ => InputResult::Continue,
@@ -1022,4 +1118,263 @@ fn terminal_execute(state: &mut TerminalState, cmd: &str) {
         }
     }
     state.output_lines.push(String::new());
+}
+
+// ============================================================================
+// 7. File Browser
+// ============================================================================
+
+pub struct FileBrowserState {
+    current_path: String,
+    entries: Vec<FileBrowserEntry>,
+    selected: usize,
+    scroll: usize,
+    status_msg: String,
+    preview: Vec<String>,
+}
+
+struct FileBrowserEntry {
+    name: String,
+    is_dir: bool,
+    size: usize,
+}
+
+impl FileBrowserState {
+    fn new() -> Self {
+        Self {
+            current_path: String::from("/"),
+            entries: Vec::new(),
+            selected: 0,
+            scroll: 0,
+            status_msg: String::from("Enter:Open  Backspace:Up  D:Delete  R:Refresh"),
+            preview: Vec::new(),
+        }
+    }
+}
+
+fn filebrowser_init(state: &mut FileBrowserState) {
+    filebrowser_refresh(state);
+}
+
+fn filebrowser_refresh(state: &mut FileBrowserState) {
+    use crate::storage::vfs;
+    state.entries.clear();
+    state.preview.clear();
+
+    if !vfs::is_ready() {
+        state.status_msg = String::from("No filesystem mounted!");
+        return;
+    }
+
+    // Add parent directory entry if not root
+    if state.current_path != "/" {
+        state.entries.push(FileBrowserEntry {
+            name: String::from(".."),
+            is_dir: true,
+            size: 0,
+        });
+    }
+
+    if let Some(dir_entries) = vfs::list_dir(&state.current_path) {
+        // Sort: directories first, then files
+        let mut dirs: Vec<_> = dir_entries.iter().filter(|e| e.is_dir).collect();
+        let mut files: Vec<_> = dir_entries.iter().filter(|e| !e.is_dir).collect();
+        dirs.sort_by(|a, b| a.name.cmp(&b.name));
+        files.sort_by(|a, b| a.name.cmp(&b.name));
+
+        for d in dirs {
+            state.entries.push(FileBrowserEntry {
+                name: d.name.clone(),
+                is_dir: true,
+                size: 0,
+            });
+        }
+        for f in files {
+            let full = if state.current_path == "/" {
+                alloc::format!("/{}", f.name)
+            } else {
+                alloc::format!("{}/{}", state.current_path, f.name)
+            };
+            let size = vfs::read_file(&full).map(|d| d.len()).unwrap_or(0);
+            state.entries.push(FileBrowserEntry {
+                name: f.name.clone(),
+                is_dir: false,
+                size,
+            });
+        }
+    }
+
+    state.selected = 0;
+    state.scroll = 0;
+    state.status_msg.clear();
+    write!(state.status_msg, "{} - {} items", state.current_path, state.entries.len()).ok();
+}
+
+fn filebrowser_draw(win: &Window, state: &FileBrowserState) {
+    let cx = win.client_x();
+    let cy = win.client_y();
+    let cw = win.client_width();
+    let ch = win.client_height();
+
+    // Header — current path
+    fill_rect(cx, cy, cw, CHAR_HEIGHT + 2, Color::rgb(0x00, 0x00, 0x80));
+    let mut header = String::new();
+    write!(header, " {}", state.current_path).ok();
+    draw_text(cx + 2, cy + 1, &header, Color::WHITE);
+
+    // File list
+    let list_y = cy + CHAR_HEIGHT + 4;
+    let max_cols = (cw / CHAR_WIDTH) as usize;
+    
+    // Reserve space for preview and status
+    let list_height = ch.saturating_sub(CHAR_HEIGHT * 2 + 10);
+    let visible = (list_height / CHAR_HEIGHT) as usize;
+
+    for (i, entry) in state.entries.iter().skip(state.scroll).take(visible).enumerate() {
+        let y = list_y + i as u32 * CHAR_HEIGHT;
+        let actual_idx = state.scroll + i;
+        let is_selected = actual_idx == state.selected;
+
+        if is_selected {
+            fill_rect(cx, y, cw, CHAR_HEIGHT, Color::rgb(0x00, 0x00, 0x80));
+        }
+
+        let mut line = String::new();
+        if entry.is_dir {
+            write!(line, " [DIR]  {}/", entry.name).ok();
+        } else {
+            if entry.size < 1024 {
+                write!(line, " {:>5}B  {}", entry.size, entry.name).ok();
+            } else {
+                write!(line, " {:>4}KB  {}", entry.size / 1024, entry.name).ok();
+            }
+        }
+
+        if line.len() > max_cols { line.truncate(max_cols); }
+
+        let fg = if is_selected {
+            Color::WHITE
+        } else if entry.is_dir {
+            Color::rgb(0x00, 0x00, 0xAA)
+        } else {
+            Color::BLACK
+        };
+
+        draw_text(cx + 2, y, &line, fg);
+    }
+
+    // Status bar at bottom
+    let status_y = cy + ch - CHAR_HEIGHT - 2;
+    fill_rect(cx, status_y, cw, CHAR_HEIGHT + 2, Color::rgb(0xE0, 0xE0, 0xE0));
+    draw_text(cx + 2, status_y + 1, &state.status_msg, Color::rgb(0x40, 0x40, 0x40));
+}
+
+fn filebrowser_input(state: &mut FileBrowserState, event: &KeyEvent) -> InputResult {
+    match event.key {
+        KeyCode::Up => {
+            if state.selected > 0 {
+                state.selected -= 1;
+                if state.selected < state.scroll {
+                    state.scroll = state.selected;
+                }
+            }
+            return InputResult::Redraw;
+        }
+        KeyCode::Down => {
+            if state.selected + 1 < state.entries.len() {
+                state.selected += 1;
+            }
+            return InputResult::Redraw;
+        }
+        KeyCode::Enter => {
+            if let Some(entry) = state.entries.get(state.selected) {
+                if entry.name == ".." {
+                    // Go up
+                    if let Some(pos) = state.current_path.rfind('/') {
+                        if pos == 0 {
+                            state.current_path = String::from("/");
+                        } else {
+                            state.current_path.truncate(pos);
+                        }
+                    }
+                    filebrowser_refresh(state);
+                } else if entry.is_dir {
+                    // Enter directory
+                    if state.current_path == "/" {
+                        state.current_path = alloc::format!("/{}", entry.name);
+                    } else {
+                        let new_path = alloc::format!("{}/{}", state.current_path, entry.name);
+                        state.current_path = new_path;
+                    }
+                    filebrowser_refresh(state);
+                } else {
+                    // Preview file content
+                    use crate::storage::vfs;
+                    let full = if state.current_path == "/" {
+                        alloc::format!("/{}", entry.name)
+                    } else {
+                        alloc::format!("{}/{}", state.current_path, entry.name)
+                    };
+                    state.status_msg.clear();
+                    if let Some(data) = vfs::read_file(&full) {
+                        if let Ok(text) = core::str::from_utf8(&data) {
+                            write!(state.status_msg, "{} - {} bytes (text)", entry.name, data.len()).ok();
+                        } else {
+                            write!(state.status_msg, "{} - {} bytes (binary)", entry.name, data.len()).ok();
+                        }
+                    }
+                }
+            }
+            return InputResult::Redraw;
+        }
+        KeyCode::Backspace => {
+            // Go up one directory
+            if state.current_path != "/" {
+                if let Some(pos) = state.current_path.rfind('/') {
+                    if pos == 0 {
+                        state.current_path = String::from("/");
+                    } else {
+                        state.current_path.truncate(pos);
+                    }
+                }
+                filebrowser_refresh(state);
+            }
+            return InputResult::Redraw;
+        }
+        _ => {}
+    }
+
+    match event.ascii {
+        // 'D' or 'd' — delete selected file
+        b'D' | b'd' => {
+            if let Some(entry) = state.entries.get(state.selected) {
+                if entry.name != ".." {
+                    use crate::storage::vfs;
+                    let full = if state.current_path == "/" {
+                        alloc::format!("/{}", entry.name)
+                    } else {
+                        alloc::format!("{}/{}", state.current_path, entry.name)
+                    };
+                    if vfs::delete(&full) {
+                        state.status_msg.clear();
+                        write!(state.status_msg, "Deleted: {}", entry.name).ok();
+                        filebrowser_refresh(state);
+                        if state.selected >= state.entries.len() && state.selected > 0 {
+                            state.selected -= 1;
+                        }
+                    } else {
+                        state.status_msg.clear();
+                        write!(state.status_msg, "Failed to delete: {}", entry.name).ok();
+                    }
+                }
+            }
+            InputResult::Redraw
+        }
+        // 'R' or 'r' — refresh
+        b'R' | b'r' => {
+            filebrowser_refresh(state);
+            InputResult::Redraw
+        }
+        _ => InputResult::Continue,
+    }
 }

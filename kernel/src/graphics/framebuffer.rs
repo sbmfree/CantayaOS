@@ -91,6 +91,12 @@ pub struct Framebuffer {
     double_buffered: bool,
     /// Dirty flag — set when drawing occurs, cleared by present()
     dirty: bool,
+    /// Dirty rectangle (min corner, inclusive)
+    dirty_x1: u32,
+    dirty_y1: u32,
+    /// Dirty rectangle (max corner, exclusive)
+    dirty_x2: u32,
+    dirty_y2: u32,
 }
 
 impl Framebuffer {
@@ -106,6 +112,10 @@ impl Framebuffer {
             initialized: false,
             double_buffered: false,
             dirty: false,
+            dirty_x1: u32::MAX,
+            dirty_y1: u32::MAX,
+            dirty_x2: 0,
+            dirty_y2: 0,
         }
     }
 
@@ -119,6 +129,20 @@ impl Framebuffer {
         }
     }
 
+    /// Expand the dirty region to include a rectangle.
+    #[inline(always)]
+    fn mark_dirty_rect(&mut self, x: u32, y: u32, w: u32, h: u32) {
+        if w == 0 || h == 0 { return; }
+        let x2 = (x + w).min(self.width);
+        let y2 = (y + h).min(self.height);
+        if x >= x2 || y >= y2 { return; }
+        self.dirty_x1 = self.dirty_x1.min(x);
+        self.dirty_y1 = self.dirty_y1.min(y);
+        self.dirty_x2 = self.dirty_x2.max(x2);
+        self.dirty_y2 = self.dirty_y2.max(y2);
+        self.dirty = true;
+    }
+
     /// Put a single pixel at (x, y) with the given color.
     ///
     /// Coordinates are bounds-checked. Out-of-bounds writes are silently ignored.
@@ -128,24 +152,24 @@ impl Framebuffer {
         }
 
         let pixel = color.to_pixel(self.format);
-        let offset = (y * self.stride + x) * 4; // 4 bytes per pixel
+        let offset = (y * self.stride + x) * 4;
         let target = self.draw_target();
         let ptr = (target + offset as u64) as *mut u32;
 
         unsafe {
             if self.double_buffered {
-                core::ptr::write(ptr, pixel); // Regular write to RAM
+                core::ptr::write(ptr, pixel);
             } else {
-                core::ptr::write_volatile(ptr, pixel); // Volatile for MMIO
+                core::ptr::write_volatile(ptr, pixel);
             }
         }
-        self.dirty = true;
+        self.mark_dirty_rect(x, y, 1, 1);
     }
 
     /// Fill a rectangle with a solid color.
     ///
-    /// This is the fundamental drawing primitive. Most higher-level operations
-    /// (windows, buttons, text backgrounds) are built from filled rectangles.
+    /// Uses bulk memory fill (slice::fill) for maximum throughput on the back
+    /// buffer. Falls back to volatile writes for direct hardware FB access.
     pub fn fill_rect(&mut self, x: u32, y: u32, width: u32, height: u32, color: Color) {
         if !self.initialized {
             return;
@@ -154,21 +178,29 @@ impl Framebuffer {
         let pixel = color.to_pixel(self.format);
         let x_end = (x + width).min(self.width);
         let y_end = (y + height).min(self.height);
+        let cols = x_end.saturating_sub(x) as usize;
+        if cols == 0 || y >= y_end { return; }
         let target = self.draw_target();
 
-        for row in y..y_end {
-            let row_start = (target + (row * self.stride + x) as u64 * 4) as *mut u32;
-            for col in 0..(x_end - x) {
+        if self.double_buffered {
+            for row in y..y_end {
+                let row_start = (target + (row * self.stride + x) as u64 * 4) as *mut u32;
                 unsafe {
-                    if self.double_buffered {
-                        core::ptr::write(row_start.add(col as usize), pixel);
-                    } else {
-                        core::ptr::write_volatile(row_start.add(col as usize), pixel);
+                    let slice = core::slice::from_raw_parts_mut(row_start, cols);
+                    slice.fill(pixel);
+                }
+            }
+        } else {
+            for row in y..y_end {
+                let row_start = (target + (row * self.stride + x) as u64 * 4) as *mut u32;
+                for col in 0..cols {
+                    unsafe {
+                        core::ptr::write_volatile(row_start.add(col), pixel);
                     }
                 }
             }
         }
-        self.dirty = true;
+        self.mark_dirty_rect(x, y, width, height);
     }
 
     /// Clear the entire screen to a solid color.
@@ -179,40 +211,70 @@ impl Framebuffer {
 
         let pixel = color.to_pixel(self.format);
         let target = self.draw_target();
-
-        // Fast fill: write entire framebuffer as u32 array
         let total_pixels = self.stride as usize * self.height as usize;
-        let ptr = target as *mut u32;
-        for i in 0..total_pixels {
+
+        if self.double_buffered {
             unsafe {
-                if self.double_buffered {
-                    core::ptr::write(ptr.add(i), pixel);
-                } else {
+                let slice = core::slice::from_raw_parts_mut(target as *mut u32, total_pixels);
+                slice.fill(pixel);
+            }
+        } else {
+            let ptr = target as *mut u32;
+            for i in 0..total_pixels {
+                unsafe {
                     core::ptr::write_volatile(ptr.add(i), pixel);
                 }
             }
         }
-        self.dirty = true;
+        self.mark_dirty_rect(0, 0, self.width, self.height);
     }
 
-    /// Copy the back buffer to the hardware framebuffer.
+    /// Copy only the dirty region of the back buffer to the hardware framebuffer.
     ///
-    /// This is the "page flip" that makes all drawing visible at once,
-    /// avoiding tearing artifacts. Only copies if the back buffer is dirty.
+    /// Uses dirty-rectangle tracking so that cursor-only movement copies just
+    /// the small cursor-sized region (~1 KB) instead of the entire ~8 MB buffer.
     pub fn present(&mut self) {
         if !self.initialized || !self.double_buffered || !self.dirty {
             return;
         }
 
-        let src = self.back_buffer as *const u8;
-        let dst = self.fb_addr as *mut u8;
-        let size = self.fb_size;
+        let x1 = self.dirty_x1.min(self.width);
+        let y1 = self.dirty_y1.min(self.height);
+        let x2 = self.dirty_x2.min(self.width);
+        let y2 = self.dirty_y2.min(self.height);
 
-        unsafe {
-            core::ptr::copy_nonoverlapping(src, dst, size);
+        if x1 >= x2 || y1 >= y2 {
+            self.dirty = false;
+            return;
+        }
+
+        // If dirty region spans the full width, copy rows contiguously
+        if x1 == 0 && x2 >= self.width {
+            let offset = (y1 * self.stride) as usize * 4;
+            let size = ((y2 - y1) * self.stride) as usize * 4;
+            unsafe {
+                let src = (self.back_buffer as usize + offset) as *const u8;
+                let dst = (self.fb_addr as usize + offset) as *mut u8;
+                core::ptr::copy_nonoverlapping(src, dst, size);
+            }
+        } else {
+            // Copy only the dirty columns in each row
+            let row_bytes = (x2 - x1) as usize * 4;
+            for row in y1..y2 {
+                let offset = (row * self.stride + x1) as usize * 4;
+                unsafe {
+                    let src = (self.back_buffer as usize + offset) as *const u8;
+                    let dst = (self.fb_addr as usize + offset) as *mut u8;
+                    core::ptr::copy_nonoverlapping(src, dst, row_bytes);
+                }
+            }
         }
 
         self.dirty = false;
+        self.dirty_x1 = self.width;
+        self.dirty_y1 = self.height;
+        self.dirty_x2 = 0;
+        self.dirty_y2 = 0;
     }
 
     /// Direct write to the hardware framebuffer (bypasses double buffer).
@@ -255,6 +317,43 @@ impl Framebuffer {
     /// Clear directly to hardware framebuffer (bypasses double buffer).
     pub fn clear_direct(&self, color: Color) {
         self.fill_rect_direct(0, 0, self.width, self.height, color);
+    }
+
+    /// Save a rectangular region from the draw target into a buffer.
+    /// Used for cursor save/restore to avoid full redraws on mouse movement.
+    pub fn save_region(&self, x: u32, y: u32, w: u32, h: u32, buf: &mut [u32]) {
+        if !self.initialized { return; }
+        let target = self.draw_target();
+        for row in 0..h {
+            let py = y + row;
+            if py >= self.height { break; }
+            for col in 0..w {
+                let px = x + col;
+                if px >= self.width { break; }
+                let offset = (py * self.stride + px) as u64 * 4;
+                let ptr = (target + offset) as *const u32;
+                buf[(row * w + col) as usize] = unsafe { core::ptr::read(ptr) };
+            }
+        }
+    }
+
+    /// Restore a rectangular region to the draw target from a buffer.
+    /// Marks the restored area as dirty so it will be presented.
+    pub fn restore_region(&mut self, x: u32, y: u32, w: u32, h: u32, buf: &[u32]) {
+        if !self.initialized { return; }
+        let target = self.draw_target();
+        for row in 0..h {
+            let py = y + row;
+            if py >= self.height { break; }
+            for col in 0..w {
+                let px = x + col;
+                if px >= self.width { break; }
+                let offset = (py * self.stride + px) as u64 * 4;
+                let ptr = (target + offset) as *mut u32;
+                unsafe { core::ptr::write(ptr, buf[(row * w + col) as usize]); }
+            }
+        }
+        self.mark_dirty_rect(x, y, w, h);
     }
 }
 

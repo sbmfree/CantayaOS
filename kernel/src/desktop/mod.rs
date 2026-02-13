@@ -265,6 +265,25 @@ pub const ICON_TERMINAL: [u16; 16] = [
     0b0000000000000000,
 ];
 
+pub const ICON_FOLDER: [u16; 16] = [
+    0b0000000000000000,
+    0b0011110000000000,
+    0b0011111000000000,
+    0b0111111111111110,
+    0b0111111111111110,
+    0b0100000000000010,
+    0b0100000000000010,
+    0b0100000000000010,
+    0b0100000000000010,
+    0b0100000000000010,
+    0b0100000000000010,
+    0b0100000000000010,
+    0b0100000000000010,
+    0b0111111111111110,
+    0b0111111111111110,
+    0b0000000000000000,
+];
+
 // ============================================================================
 // Mouse Cursor (12x19 arrow pointer)
 // ============================================================================
@@ -312,6 +331,46 @@ fn draw_cursor(mx: u32, my: u32) {
             }
         }
     }
+}
+
+// ============================================================================
+// Cursor Save Buffer (fast cursor movement without full redraw)
+// ============================================================================
+
+/// Saved pixels under the mouse cursor for fast restore.
+struct CursorSave {
+    data: [u32; (CURSOR_WIDTH * CURSOR_HEIGHT) as usize],
+    x: u32,
+    y: u32,
+    valid: bool,
+}
+
+impl CursorSave {
+    fn new() -> Self {
+        Self {
+            data: [0u32; (CURSOR_WIDTH * CURSOR_HEIGHT) as usize],
+            x: 0,
+            y: 0,
+            valid: false,
+        }
+    }
+}
+
+/// Save the pixels under the cursor position from the back buffer.
+fn save_under_cursor(save: &mut CursorSave, mx: u32, my: u32) {
+    let fb = FRAMEBUFFER.lock();
+    fb.save_region(mx, my, CURSOR_WIDTH, CURSOR_HEIGHT, &mut save.data);
+    save.x = mx;
+    save.y = my;
+    save.valid = true;
+}
+
+/// Restore the saved pixels (erase the cursor from the back buffer).
+fn restore_cursor_save(save: &mut CursorSave) {
+    if !save.valid { return; }
+    let mut fb = FRAMEBUFFER.lock();
+    fb.restore_region(save.x, save.y, CURSOR_WIDTH, CURSOR_HEIGHT, &save.data);
+    save.valid = false;
 }
 
 // ============================================================================
@@ -460,6 +519,13 @@ impl DesktopState {
                 x: icon_x,
                 y: icon_start_y + icon_spacing_y * 5,
             },
+            DesktopIcon {
+                name: "Files",
+                icon: &ICON_FOLDER,
+                app_id: apps::AppId::FileBrowser,
+                x: icon_x,
+                y: icon_start_y + icon_spacing_y * 6,
+            },
         ];
 
         Self {
@@ -479,18 +545,56 @@ pub fn run() {
     let mut desktop = DesktopState::new(sw, sh);
     let mut window_mgr = wm::WindowManager::new(sw, sh);
     let mut mouse_tracker = MouseTracker::new(sw, sh);
+    let mut cursor_save = CursorSave::new();
 
-    // Initial draw
+    // Initial full draw
     draw_desktop(&desktop);
     taskbar::draw(&window_mgr, sw, sh);
+    save_under_cursor(&mut cursor_save, mouse_tracker.x(), mouse_tracker.y());
     draw_cursor(mouse_tracker.x(), mouse_tracker.y());
     present();
 
     loop {
-        // Periodically refresh clock (~1 second)
+        let mut needs_full_redraw = false;
+        let mut should_exit = false;
+
+        // --- Process mouse events ---
+        let (mouse_moved, mouse_click) = mouse_tracker.process_events(sw, sh);
+
+        if let Some(click) = mouse_click {
+            if click == MouseClick::LeftDown {
+                let mx = mouse_tracker.x();
+                let my = mouse_tracker.y();
+                match handle_mouse_click(&mut desktop, &mut window_mgr, mx, my, sw, sh) {
+                    InputResult::ExitDesktop => { should_exit = true; }
+                    InputResult::Redraw => { needs_full_redraw = true; }
+                    InputResult::Continue => {}
+                }
+            }
+        }
+
+        // --- Process keyboard events ---
+        if let Some(event) = keyboard::try_read_char() {
+            let result = if desktop.start_menu_open {
+                handle_start_menu_input(&mut desktop, &mut window_mgr, &event)
+            } else if window_mgr.has_focused_window() {
+                window_mgr.handle_input(&event)
+            } else {
+                handle_desktop_input(&mut desktop, &mut window_mgr, &event)
+            };
+            match result {
+                InputResult::ExitDesktop => { should_exit = true; }
+                InputResult::Redraw => { needs_full_redraw = true; }
+                InputResult::Continue => {}
+            }
+        }
+
+        if should_exit { return; }
+
+        // --- Clock refresh (~1 second) ---
         let now = crate::shell::ticks();
         static mut LAST_CLOCK_TICK: u64 = 0;
-        let should_refresh_clock = unsafe {
+        let clock_tick = unsafe {
             if now.wrapping_sub(LAST_CLOCK_TICK) >= 1000 {
                 LAST_CLOCK_TICK = now;
                 true
@@ -499,98 +603,40 @@ pub fn run() {
             }
         };
 
-        if should_refresh_clock {
-            taskbar::draw(&window_mgr, sw, sh);
-            draw_cursor(mouse_tracker.x(), mouse_tracker.y());
-            present();
-        }
-
-        // --- Process mouse events ---
-        let (mouse_moved, mouse_click) = mouse_tracker.process_events(sw, sh);
-        let mut needs_redraw = false;
-
-        // Handle mouse click
-        if let Some(click) = mouse_click {
-            if click == MouseClick::LeftDown {
-                let mx = mouse_tracker.x();
-                let my = mouse_tracker.y();
-
-                let result = handle_mouse_click(&mut desktop, &mut window_mgr, mx, my, sw, sh);
-                match result {
-                    InputResult::ExitDesktop => return,
-                    InputResult::Redraw => { needs_redraw = true; }
-                    InputResult::Continue => {}
-                }
-            }
-        }
-
-        if mouse_moved || needs_redraw {
-            // Full redraw on click, optimized redraw on just movement
+        // --- Render (consolidated, single present per iteration) ---
+        if needs_full_redraw {
+            // Full scene redraw — everything gets repainted
+            restore_cursor_save(&mut cursor_save);
             draw_desktop(&desktop);
             if desktop.start_menu_open {
                 draw_start_menu(&desktop);
             }
             window_mgr.draw_all();
             taskbar::draw(&window_mgr, sw, sh);
+            save_under_cursor(&mut cursor_save, mouse_tracker.x(), mouse_tracker.y());
             draw_cursor(mouse_tracker.x(), mouse_tracker.y());
             present();
-        }
-
-        // --- Process keyboard events ---
-        let event = match keyboard::try_read_char() {
-            Some(e) => e,
-            None => {
-                if !mouse_moved && !needs_redraw {
-                    unsafe { core::arch::asm!("hlt"); }
-                }
-                continue;
+        } else if mouse_moved {
+            // Fast path: only the cursor changed position.
+            // Restore old cursor pixels, optionally refresh clock,
+            // save new pixels, draw cursor. Dirty rect is tiny (~1 KB).
+            restore_cursor_save(&mut cursor_save);
+            if clock_tick {
+                taskbar::draw(&window_mgr, sw, sh);
             }
-        };
-
-        // Route input based on what's active
-        if desktop.start_menu_open {
-            match handle_start_menu_input(&mut desktop, &mut window_mgr, &event) {
-                InputResult::Continue => {}
-                InputResult::ExitDesktop => return,
-                InputResult::Redraw => {
-                    draw_desktop(&desktop);
-                    if desktop.start_menu_open {
-                        draw_start_menu(&desktop);
-                    }
-                    window_mgr.draw_all();
-                    taskbar::draw(&window_mgr, sw, sh);
-                    draw_cursor(mouse_tracker.x(), mouse_tracker.y());
-                    present();
-                }
-            }
-        } else if window_mgr.has_focused_window() {
-            match window_mgr.handle_input(&event) {
-                InputResult::Continue => {}
-                InputResult::ExitDesktop => return,
-                InputResult::Redraw => {
-                    draw_desktop(&desktop);
-                    window_mgr.draw_all();
-                    taskbar::draw(&window_mgr, sw, sh);
-                    draw_cursor(mouse_tracker.x(), mouse_tracker.y());
-                    present();
-                }
-            }
+            save_under_cursor(&mut cursor_save, mouse_tracker.x(), mouse_tracker.y());
+            draw_cursor(mouse_tracker.x(), mouse_tracker.y());
+            present();
+        } else if clock_tick {
+            // Just refresh the clock area
+            restore_cursor_save(&mut cursor_save);
+            taskbar::draw(&window_mgr, sw, sh);
+            save_under_cursor(&mut cursor_save, mouse_tracker.x(), mouse_tracker.y());
+            draw_cursor(mouse_tracker.x(), mouse_tracker.y());
+            present();
         } else {
-            // Desktop has focus
-            match handle_desktop_input(&mut desktop, &mut window_mgr, &event) {
-                InputResult::Continue => {}
-                InputResult::ExitDesktop => return,
-                InputResult::Redraw => {
-                    draw_desktop(&desktop);
-                    if desktop.start_menu_open {
-                        draw_start_menu(&desktop);
-                    }
-                    window_mgr.draw_all();
-                    taskbar::draw(&window_mgr, sw, sh);
-                    draw_cursor(mouse_tracker.x(), mouse_tracker.y());
-                    present();
-                }
-            }
+            // Nothing to do — sleep until next interrupt
+            unsafe { core::arch::asm!("hlt"); }
         }
     }
 }
@@ -838,14 +884,67 @@ fn handle_mouse_click(
 /// Draw the desktop background and icons.
 fn draw_desktop(desktop: &DesktopState) {
     let (sw, sh) = screen_size();
+    let desk_h = sh - TASKBAR_HEIGHT;
 
-    // Fill desktop background
-    fill_rect(0, 0, sw, sh - TASKBAR_HEIGHT, DESKTOP_BG);
+    // Draw wallpaper pattern instead of flat fill
+    draw_wallpaper(sw, desk_h);
 
     // Draw desktop icons
     for (i, icon) in desktop.icons.iter().enumerate() {
         let selected = desktop.selected_icon == Some(i);
         draw_desktop_icon(icon, selected);
+    }
+}
+
+/// Draw a tiled wallpaper pattern on the desktop background
+fn draw_wallpaper(w: u32, h: u32) {
+    let mut fb = FRAMEBUFFER.lock();
+    // Gradient background: dark teal at top fading to lighter teal at bottom
+    for y in 0..h {
+        let t = y as f32 / h as f32;
+        // Top: rgb(0, 64, 80) -> Bottom: rgb(0, 140, 140)
+        let r = 0u8;
+        let g = (64.0 + t * 76.0) as u8;
+        let b_val = (80.0 + t * 60.0) as u8;
+
+        for x in 0..w {
+            // Add subtle diamond pattern
+            let pattern = ((x / 16 + y / 16) % 2 == 0) as u8;
+            let pr = r;
+            let pg = g.saturating_add(pattern * 6);
+            let pb = b_val.saturating_add(pattern * 4);
+            fb.put_pixel(x, y, Color::rgb(pr, pg, pb));
+        }
+    }
+
+    // Draw a subtle CantayaOS watermark in center
+    let text = "CantayaOS";
+    let text_w = text.len() as u32 * CHAR_WIDTH * 3; // 3x scale
+    let text_x = (w.saturating_sub(text_w)) / 2;
+    let text_y = (h.saturating_sub(CHAR_HEIGHT * 3)) / 2;
+
+    for (ci, c) in text.chars().enumerate() {
+        let bitmap = font::get_char_bitmap(c);
+        for (dy, &row_bits) in bitmap.iter().enumerate() {
+            for dx in 0..8u32 {
+                if (row_bits >> (7 - dx)) & 1 != 0 {
+                    // Draw 3x scaled, very subtle overlay
+                    for sy in 0..3u32 {
+                        for sx in 0..3u32 {
+                            let px = text_x + ci as u32 * CHAR_WIDTH * 3 + dx * 3 + sx;
+                            let py = text_y + dy as u32 * 3 + sy;
+                            if px < w && py < h {
+                                // Slightly brighter than background
+                                let base_t = py as f32 / h as f32;
+                                let bg = (64.0 + base_t * 76.0) as u8;
+                                let bb = (80.0 + base_t * 60.0) as u8;
+                                fb.put_pixel(px, py, Color::rgb(0, bg.saturating_add(15), bb.saturating_add(10)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -889,6 +988,7 @@ fn start_menu_items() -> Vec<(&'static str, Option<apps::AppId>)> {
         ("  Calculator",    Some(apps::AppId::Calculator)),
         ("  About CantayaOS", Some(apps::AppId::About)),
         ("  Terminal",      Some(apps::AppId::Terminal)),
+        ("  File Browser",  Some(apps::AppId::FileBrowser)),
         ("  ─────────────", None), // separator (will skip in input)
         ("  Exit to Shell", None),
     ]

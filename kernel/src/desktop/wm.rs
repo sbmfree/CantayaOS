@@ -60,6 +60,7 @@ impl Window {
             AppId::Calculator  => ("Calculator", 260u32, 320u32),
             AppId::About       => ("About CantayaOS", 400u32, 280u32),
             AppId::Terminal    => ("Terminal", 600u32, 400u32),
+            AppId::FileBrowser => ("File Browser", 480u32, 400u32),
         };
 
         // Center the window, offset by id to cascade
