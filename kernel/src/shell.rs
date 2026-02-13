@@ -124,6 +124,8 @@ impl History {
 
 /// Run the interactive kernel shell (never returns).
 pub fn run() -> ! {
+    // Load saved theme before the banner so it renders with the right colors
+    load_saved_theme();
     print_banner();
 
     let mut cmd_buf = [0u8; MAX_CMD_LEN];
@@ -917,40 +919,112 @@ fn cmd_pci() {
 }
 
 fn cmd_color(args: &str) {
-    match args.trim() {
+    let scheme = args.trim();
+    if apply_color_scheme(scheme) {
+        save_color_scheme(scheme);
+    }
+}
+
+/// Apply a color scheme by name. Returns true if recognized.
+fn apply_color_scheme(name: &str) -> bool {
+    match name {
         "green" | "matrix" => {
             console::set_color(0x00, 0xFF, 0x00);
             console::set_bg_color(0x00, 0x00, 0x00);
             console::clear();
             console::println("Color scheme: Matrix green");
+            true
         }
         "amber" => {
             console::set_color(0xFF, 0xB0, 0x00);
             console::set_bg_color(0x00, 0x00, 0x00);
             console::clear();
             console::println("Color scheme: Amber terminal");
+            true
         }
         "white" => {
             console::set_color(0xFF, 0xFF, 0xFF);
             console::set_bg_color(0x00, 0x00, 0x00);
             console::clear();
             console::println("Color scheme: White on black");
+            true
         }
         "blue" => {
             console::set_color(0xFF, 0xFF, 0xFF);
             console::set_bg_color(0x00, 0x00, 0xAA);
             console::clear();
             console::println("Color scheme: BSOD classic");
+            true
         }
         "default" => {
             console::set_color(0xFF, 0xFF, 0xFF);
             console::set_bg_color(0x00, 0x80, 0x80);
             console::clear();
             console::println("Color scheme: Default (teal)");
+            true
         }
         _ => {
             console::println("Usage: color <scheme>");
             console::println("  Schemes: green, amber, white, blue, default");
+            false
+        }
+    }
+}
+
+/// Save the current color scheme to /system/theme.cfg on the FAT32 disk.
+fn save_color_scheme(name: &str) {
+    use crate::storage::vfs;
+    use crate::hal::virtio_blk;
+
+    if !virtio_blk::is_available() {
+        return;
+    }
+
+    // Ensure /system directory exists
+    if !vfs::exists("/system") {
+        vfs::mkdir("/system");
+    }
+
+    vfs::write_file("/system/theme.cfg", name.as_bytes());
+}
+
+/// Load and apply the saved color scheme from /system/theme.cfg.
+/// Called at shell startup. Applies silently (no "Color scheme:" message).
+fn load_saved_theme() {
+    use crate::storage::vfs;
+    use crate::hal::virtio_blk;
+
+    if !virtio_blk::is_available() {
+        return;
+    }
+
+    if let Some(data) = vfs::read_file("/system/theme.cfg") {
+        if let Ok(name) = core::str::from_utf8(&data) {
+            let name = name.trim();
+            // Apply silently — just set colors, no clear/print
+            match name {
+                "green" | "matrix" => {
+                    console::set_color(0x00, 0xFF, 0x00);
+                    console::set_bg_color(0x00, 0x00, 0x00);
+                }
+                "amber" => {
+                    console::set_color(0xFF, 0xB0, 0x00);
+                    console::set_bg_color(0x00, 0x00, 0x00);
+                }
+                "white" => {
+                    console::set_color(0xFF, 0xFF, 0xFF);
+                    console::set_bg_color(0x00, 0x00, 0x00);
+                }
+                "blue" => {
+                    console::set_color(0xFF, 0xFF, 0xFF);
+                    console::set_bg_color(0x00, 0x00, 0xAA);
+                }
+                "default" => {
+                    console::set_color(0xFF, 0xFF, 0xFF);
+                    console::set_bg_color(0x00, 0x80, 0x80);
+                }
+                _ => {}
+            }
         }
     }
 }
