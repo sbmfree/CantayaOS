@@ -79,8 +79,17 @@ fn env_init() {
         map.insert("OS".into(), "CantayaOS".into());
         map.insert("ARCH".into(), "x86_64".into());
         map.insert("SHELL".into(), "csh".into());
-        map.insert("USER".into(), "root".into());
-        map.insert("HOME".into(), "/".into());
+        map.insert("USER".into(), "Root".into());
+        map.insert("HOME".into(), "/Users/Root".into());
+        map.insert("USERPROFILE".into(), "/Users/Root".into());
+        map.insert("SYSTEMROOT".into(), "/Windows".into());
+        map.insert("WINDIR".into(), "/Windows".into());
+        map.insert("SYSTEMDRIVE".into(), "C:".into());
+        map.insert("COMPUTERNAME".into(), "CANTAYAOS".into());
+        map.insert("TEMP".into(), "/Windows/Temp".into());
+        map.insert("TMP".into(), "/Windows/Temp".into());
+        map.insert("PROGRAMFILES".into(), "/Programs".into());
+        map.insert("PATH".into(), "/Windows/System32;/Windows;/Programs".into());
         let mut ver = String::new();
         write!(ver, "{}", env!("CARGO_PKG_VERSION")).ok();
         map.insert("VERSION".into(), ver);
@@ -328,7 +337,7 @@ pub fn run() -> ! {
 fn tab_complete(prefix: &str) -> Option<&'static str> {
     const COMMANDS: &[&str] = &[
         "acpi", "append", "banner", "beep", "bootinfo", "cal", "cat", "cd",
-        "clear", "cls", "color", "copy", "cp", "cpu", "date", "del",
+        "chdir", "clear", "cls", "color", "copy", "cp", "cpu", "date", "del",
         "desktop", "dir", "disk", "echo", "edit", "env", "find",
         "fortune", "grep", "halt", "head", "help", "hexdump", "history",
         "hostname", "interrupts", "irq", "kill", "ls", "lspci", "md",
@@ -336,7 +345,7 @@ fn tab_complete(prefix: &str) -> Option<&'static str> {
         "poweroff", "priority", "ps", "pwd", "reboot", "rename", "rm",
         "set", "shutdown", "sleep", "spawn", "stat", "sysinfo",
         "tail", "tasks", "tick", "touch", "tree", "type", "unset",
-        "uptime", "ver", "version", "wc", "whoami", "write", "xxd",
+        "uptime", "ver", "version", "vol", "wc", "whoami", "write", "xxd",
         "yield",
     ];
     COMMANDS.iter().find(|cmd| cmd.starts_with(prefix)).copied()
@@ -344,11 +353,34 @@ fn tab_complete(prefix: &str) -> Option<&'static str> {
 
 fn print_prompt() {
     update_status_bar();
-    let hostname = get_hostname();
-    console::set_color(0x00, 0xCC, 0x00);
-    console::print(&hostname);
+    // Windows-style prompt: C:\path>
+    let cwd = crate::storage::vfs::cwd();
+    // Convert Unix-style path to Windows-style: / → C:\
+    let win_path = unix_to_win_path(&cwd);
     console::set_color(0xFF, 0xFF, 0xFF);
-    console::print("> ");
+    console::print(&win_path);
+    console::print(">");
+}
+
+/// Convert a Unix-style VFS path to a Windows-style display path.
+///
+/// Examples:
+///   "/"                  → "C:\\"
+///   "/Users/Root"        → "C:\\Users\\Root"
+///   "/Windows/System32"  → "C:\\Windows\\System32"
+fn unix_to_win_path(path: &str) -> String {
+    if path == "/" {
+        return String::from("C:\\");
+    }
+    let mut result = String::from("C:");
+    for ch in path.chars() {
+        if ch == '/' {
+            result.push('\\');
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 /// Update the persistent status bar at the bottom of the screen.
@@ -394,12 +426,14 @@ fn print_banner() {
     console::println("");
 
     let mut s = String::new();
-    write!(s, "CantayaOS v{} — x86_64 Hybrid Kernel", env!("CARGO_PKG_VERSION")).ok();
+    write!(s, "CantayaOS [Version {}]", env!("CARGO_PKG_VERSION")).ok();
     console::println(&s);
+    console::println("(c) CantayaOS Contributors. All rights reserved.");
+    console::println("");
 
     let total_mem_mib = crate::memory::frame_allocator::free_frame_count() * 4 / 1024;
     let mut info = String::new();
-    write!(info, "{} MiB usable RAM | PIT 1000 Hz | 1920x1080 framebuffer", total_mem_mib).ok();
+    write!(info, "{} MiB usable RAM | x86_64 | FAT32 volume CANTAYAOS", total_mem_mib).ok();
     console::set_color(0xAA, 0xAA, 0xAA);
     console::println(&info);
     console::set_color(0xFF, 0xFF, 0xFF);
@@ -470,8 +504,9 @@ fn execute_single_command(input: &str) {
         "rm" | "del" => cmd_rm(args),
         "cp" | "copy" => cmd_cp(args),
         "disk" => cmd_disk(),
-        "cd" => cmd_cd(args),
+        "cd" | "chdir" => cmd_cd(args),
         "pwd" => cmd_pwd(),
+        "vol" => cmd_vol(),
         // New commands
         "beep" => cmd_beep(args),
         "hostname" => cmd_hostname(args),
@@ -496,7 +531,7 @@ fn execute_single_command(input: &str) {
         "xxd" => cmd_xxd(args),
         _ => {
             let mut s = String::new();
-            write!(s, "Unknown command: '{}'. Type 'help' for available commands.", cmd).ok();
+            write!(s, "'{}' is not recognized as an internal or external command.", cmd).ok();
             console::set_color(0xFF, 0x55, 0x55);
             console::println(&s);
             console::set_color(0xFF, 0xFF, 0xFF);
@@ -543,18 +578,18 @@ fn cmd_help() {
     console::set_color(0xFF, 0xFF, 0x55);
     console::println("\nFilesystem Commands:");
     console::set_color(0xFF, 0xFF, 0xFF);
-    console::println("  ls [path]        List directory contents");
-    console::println("  cat <file>       Display file contents");
+    console::println("  dir [path]       List directory contents (alias: ls)");
+    console::println("  type <file>      Display file contents (alias: cat)");
     console::println("  write <f> <text> Write text to a file");
     console::println("  append <f> <txt> Append text to a file");
     console::println("  edit <file>      Open file in text editor");
     console::println("  touch <file>     Create an empty file");
-    console::println("  mkdir <dir>      Create a directory");
-    console::println("  rm <file|dir>    Delete a file or empty directory");
-    console::println("  cp <src> <dst>   Copy a file");
-    console::println("  rename <s> <d>   Rename/move a file");
+    console::println("  md <dir>         Create a directory (alias: mkdir)");
+    console::println("  del <file|dir>   Delete a file or empty dir (alias: rm)");
+    console::println("  copy <src> <dst> Copy a file (alias: cp)");
+    console::println("  rename <s> <d>   Rename/move a file (alias: mv)");
     console::println("  cd <dir>         Change working directory");
-    console::println("  pwd              Print working directory");
+    console::println("  cd               Print working directory");
     console::println("  disk             Show disk/filesystem info");
     console::println("  stat <file>      Show file information");
     console::println("  tree [path]      Show directory tree");
@@ -590,11 +625,13 @@ fn cmd_help() {
 
 fn cmd_version() {
     let mut s = String::new();
-    write!(s, "CantayaOS Kernel v{}", env!("CARGO_PKG_VERSION")).ok();
+    console::println("");
+    write!(s, "CantayaOS [Version {}]", env!("CARGO_PKG_VERSION")).ok();
     console::println(&s);
     console::println("Architecture: x86_64 (AMD64)");
-    console::println("Build: Rust nightly, no_std bare-metal");
-    console::println("Kernel model: Hybrid (inspired by Windows NT)");
+    console::println("Kernel: Hybrid (Rust, no_std bare-metal)");
+    console::println("Filesystem: FAT32 with Windows-like hierarchy");
+    console::println("Boot: UEFI");
 }
 
 fn cmd_memory() {
@@ -1535,11 +1572,13 @@ fn cmd_ls(args: &str) {
     }
 
     let path = if args.is_empty() { "." } else { args };
-    let entries = match vfs::list_dir(path) {
+    // Convert backslashes if user typed Windows-style path
+    let path_unix = win_to_unix_path(path);
+    let entries = match vfs::list_dir(&path_unix) {
         Some(e) => e,
         None => {
             let mut s = String::new();
-            write!(s, "ls: cannot access '{}': No such directory", path).ok();
+            write!(s, "File Not Found: {}", path).ok();
             console::set_color(0xFF, 0x55, 0x55);
             console::println(&s);
             console::set_color(0xFF, 0xFF, 0xFF);
@@ -1547,48 +1586,96 @@ fn cmd_ls(args: &str) {
         }
     };
 
+    // Windows dir header: show the volume and directory path
+    let display_path = if path_unix == "." {
+        unix_to_win_path(&vfs::cwd())
+    } else if path_unix.starts_with('/') {
+        unix_to_win_path(&path_unix)
+    } else {
+        // Relative path — combine with CWD for display
+        let cwd = vfs::cwd();
+        let full = if cwd == "/" {
+            let mut p = String::from("/");
+            p.push_str(&path_unix);
+            p
+        } else {
+            let mut p = cwd;
+            p.push('/');
+            p.push_str(&path_unix);
+            p
+        };
+        unix_to_win_path(&full)
+    };
+    console::println("");
+    console::println(" Volume in drive C is CANTAYAOS");
+    console::println("");
+    let mut s = String::new();
+    write!(s, " Directory of {}", display_path).ok();
+    console::println(&s);
+    console::println("");
+
     if entries.is_empty() {
         console::set_color(0xAA, 0xAA, 0xAA);
-        console::println("(empty directory)");
+        console::println("File Not Found");
         console::set_color(0xFF, 0xFF, 0xFF);
         return;
     }
 
-    // Print header
-    console::set_color(0xFF, 0xFF, 0x55);
-    console::println("  Type       Size  Name");
-    console::set_color(0xAA, 0xAA, 0xAA);
-    console::println("  ----  ---------  ----");
-    console::set_color(0xFF, 0xFF, 0xFF);
+    let mut file_count = 0u32;
+    let mut dir_count = 0u32;
+    let mut total_size: u64 = 0;
 
     for entry in &entries {
         let mut s = String::new();
         if entry.is_dir {
+            dir_count += 1;
             console::set_color(0x55, 0xBB, 0xFF);
-            write!(s, "  <DIR>            {}/", entry.name).ok();
+            write!(s, "    <DIR>          {}", entry.name).ok();
         } else {
+            file_count += 1;
+            total_size += entry.size as u64;
             console::set_color(0xFF, 0xFF, 0xFF);
-            if entry.size >= 1024 * 1024 {
-                write!(s, "  FILE  {:>5} MiB  {}", entry.size / (1024 * 1024), entry.name).ok();
-            } else if entry.size >= 1024 {
-                write!(s, "  FILE  {:>5} KiB  {}", entry.size / 1024, entry.name).ok();
-            } else {
-                write!(s, "  FILE  {:>5}   B  {}", entry.size, entry.name).ok();
-            }
+            write!(s, "    {:>14}  {}", format_size_commas(entry.size), entry.name).ok();
         }
         console::println(&s);
     }
     console::set_color(0xFF, 0xFF, 0xFF);
 
-    // Summary
-    let dirs = entries.iter().filter(|e| e.is_dir).count();
-    let files = entries.iter().filter(|e| !e.is_dir).count();
-    let total_size: u64 = entries.iter().map(|e| e.size as u64).sum();
-    let mut s = String::new();
-    console::set_color(0xAA, 0xAA, 0xAA);
-    write!(s, "\n  {} file(s), {} dir(s), {} bytes total", files, dirs, total_size).ok();
+    // Windows dir footer
+    s.clear();
+    write!(s, "    {:>8} File(s)  {:>14} bytes", file_count, format_size_commas(total_size as u32)).ok();
     console::println(&s);
-    console::set_color(0xFF, 0xFF, 0xFF);
+    s.clear();
+    write!(s, "    {:>8} Dir(s)", dir_count).ok();
+    console::println(&s);
+}
+
+/// Format a file size with comma separators (Windows dir style).
+fn format_size_commas(size: u32) -> String {
+    let num = alloc::format!("{}", size);
+    let bytes = num.as_bytes();
+    let len = bytes.len();
+    if len <= 3 {
+        return num;
+    }
+    let mut result = String::with_capacity(len + len / 3);
+    let first_group = len % 3;
+    if first_group > 0 {
+        for &b in &bytes[..first_group] {
+            result.push(b as char);
+        }
+        if first_group < len {
+            result.push(',');
+        }
+    }
+    let remaining = &bytes[first_group..];
+    for (i, &b) in remaining.iter().enumerate() {
+        result.push(b as char);
+        if (i + 1) % 3 == 0 && i + 1 < remaining.len() {
+            result.push(',');
+        }
+    }
+    result
 }
 
 fn cmd_cat(args: &str) {
@@ -1794,24 +1881,58 @@ fn cmd_cd(args: &str) {
 
     if !vfs::is_ready() {
         console::set_color(0xFF, 0x55, 0x55);
-        console::println("No filesystem mounted.");
+        console::println("The system cannot find the drive specified.");
         console::set_color(0xFF, 0xFF, 0xFF);
         return;
     }
 
     if args.is_empty() {
-        // Print current directory
+        // Like Windows cmd: cd with no args prints current directory
         cmd_pwd();
         return;
     }
 
-    if !vfs::cd(args) {
+    // Convert Windows-style backslashes to forward slashes for VFS
+    let path = win_to_unix_path(args);
+
+    if !vfs::cd(&path) {
         let mut s = String::new();
-        write!(s, "cd: '{}': No such directory", args).ok();
+        write!(s, "The system cannot find the path specified: {}", args).ok();
         console::set_color(0xFF, 0x55, 0x55);
         console::println(&s);
         console::set_color(0xFF, 0xFF, 0xFF);
     }
+}
+
+/// Convert a Windows-style path input to Unix-style for VFS.
+///
+/// Handles:
+///   - Backslash to forward slash: `Users\Root` → `Users/Root`
+///   - Strip drive letter: `C:\Users\Root` → `/Users/Root`
+///   - Bare `C:` or `C:\` → `/`
+fn win_to_unix_path(path: &str) -> String {
+    let mut p = path;
+    // Strip optional drive letter prefix (C: or C:\)
+    if p.len() >= 2 && p.as_bytes()[1] == b':' {
+        p = &p[2..];
+        if p.starts_with('\\') || p.starts_with('/') {
+            p = &p[1..];
+        }
+        if p.is_empty() {
+            return String::from("/");
+        }
+    }
+    // Convert backslashes to forward slashes
+    let mut result = String::with_capacity(p.len() + 1);
+    // If the remaining path doesn't start with / or \, keep as relative
+    for ch in p.chars() {
+        if ch == '\\' {
+            result.push('/');
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 fn cmd_pwd() {
@@ -1824,7 +1945,16 @@ fn cmd_pwd() {
         return;
     }
 
-    console::println(&vfs::cwd());
+    // Show Windows-style path
+    let path = unix_to_win_path(&vfs::cwd());
+    console::println(&path);
+}
+
+fn cmd_vol() {
+    console::println("");
+    console::println(" Volume in drive C is CANTAYAOS");
+    console::println(" Volume Serial Number is CA17-AY05");
+    console::println("");
 }
 
 fn cmd_disk() {
@@ -2963,27 +3093,40 @@ fn run_autoexec() {
         return;
     }
 
-    // Load hostname
-    if let Some(data) = vfs::read_file("/system/hostname.cfg") {
-        if let Ok(name) = core::str::from_utf8(&data) {
-            let name = name.trim();
-            if !name.is_empty() {
-                set_hostname_value(name);
+    // Load hostname — try Windows path first, fall back to legacy
+    let hostname_paths = ["/Windows/System32/Config/hostname.cfg", "/system/hostname.cfg"];
+    for path in &hostname_paths {
+        if let Some(data) = vfs::read_file(path) {
+            if let Ok(name) = core::str::from_utf8(&data) {
+                let name = name.trim();
+                if !name.is_empty() {
+                    set_hostname_value(name);
+                    break;
+                }
             }
         }
     }
 
-    // Run autoexec script
-    if let Some(data) = vfs::read_file("/system/autoexec.cfg") {
-        if let Ok(script) = core::str::from_utf8(&data) {
-            log::info!("Running /system/autoexec.cfg");
-            for line in script.lines() {
-                let line = line.trim();
-                if line.is_empty() || line.starts_with('#') {
-                    continue;
+    // Run autoexec script — try Windows path first, fall back to legacy
+    let autoexec_paths = ["/Windows/System32/Config/autoexec.cfg", "/system/autoexec.cfg"];
+    for path in &autoexec_paths {
+        if let Some(data) = vfs::read_file(path) {
+            if let Ok(script) = core::str::from_utf8(&data) {
+                log::info!("Running {}", path);
+                for line in script.lines() {
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') {
+                        continue;
+                    }
+                    execute_command(line);
                 }
-                execute_command(line);
+                break;
             }
         }
+    }
+
+    // Navigate to the user's home directory
+    if vfs::is_ready() {
+        vfs::cd("/Users/Root");
     }
 }
