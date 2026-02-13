@@ -41,6 +41,11 @@ pub enum AppId {
     About,
     Terminal,
     FileBrowser,
+    Paint,
+    Minesweeper,
+    Snake,
+    Settings,
+    Clock,
 }
 
 /// Application state — each app stores its own data here.
@@ -52,6 +57,11 @@ pub enum AppState {
     About(AboutState),
     Terminal(TerminalState),
     FileBrowser(FileBrowserState),
+    Paint(PaintState),
+    Minesweeper(MinesweeperState),
+    Snake(SnakeState),
+    Settings(SettingsState),
+    Clock(ClockState),
 }
 
 impl AppState {
@@ -64,6 +74,11 @@ impl AppState {
             AppId::About       => AppState::About(AboutState::new()),
             AppId::Terminal    => AppState::Terminal(TerminalState::new()),
             AppId::FileBrowser => AppState::FileBrowser(FileBrowserState::new()),
+            AppId::Paint       => AppState::Paint(PaintState::new()),
+            AppId::Minesweeper => AppState::Minesweeper(MinesweeperState::new()),
+            AppId::Snake       => AppState::Snake(SnakeState::new()),
+            AppId::Settings    => AppState::Settings(SettingsState::new()),
+            AppId::Clock       => AppState::Clock(ClockState::new()),
         }
     }
 }
@@ -82,6 +97,11 @@ pub fn init_app(win: &mut Window) {
         AppState::About(_) => {}
         AppState::Terminal(state) => terminal_init(state),
         AppState::FileBrowser(state) => filebrowser_init(state),
+        AppState::Paint(_) => {}
+        AppState::Minesweeper(state) => minesweeper_init(state),
+        AppState::Snake(state) => snake_init(state),
+        AppState::Settings(state) => settings_init(state),
+        AppState::Clock(_) => {}
     }
 }
 
@@ -95,6 +115,11 @@ pub fn draw_app(win: &Window) {
         AppState::About(state) => about_draw(win, state),
         AppState::Terminal(state) => terminal_draw(win, state),
         AppState::FileBrowser(state) => filebrowser_draw(win, state),
+        AppState::Paint(state) => paint_draw(win, state),
+        AppState::Minesweeper(state) => minesweeper_draw(win, state),
+        AppState::Snake(state) => snake_draw(win, state),
+        AppState::Settings(state) => settings_draw(win, state),
+        AppState::Clock(state) => clock_draw(win, state),
     }
 }
 
@@ -108,6 +133,11 @@ pub fn handle_app_input(win: &mut Window, event: &KeyEvent) -> InputResult {
         AppState::About(_) => InputResult::Continue,
         AppState::Terminal(state) => terminal_input(state, event),
         AppState::FileBrowser(state) => filebrowser_input(state, event),
+        AppState::Paint(state) => paint_input(state, event),
+        AppState::Minesweeper(state) => minesweeper_input(state, event),
+        AppState::Snake(state) => snake_input(state, event),
+        AppState::Settings(state) => settings_input(state, event),
+        AppState::Clock(_) => InputResult::Continue,
     }
 }
 
@@ -119,6 +149,9 @@ pub fn handle_app_click(win: &mut Window, local_x: u32, local_y: u32) -> InputRe
         AppState::FileBrowser(state) => filebrowser_click(state, local_y),
         AppState::TaskManager(state) => taskmgr_click(state, local_y),
         AppState::SystemInfo(state) => sysinfo_click(state, local_y),
+        AppState::Paint(state) => paint_click(state, local_x, local_y),
+        AppState::Minesweeper(state) => minesweeper_click(state, local_x, local_y),
+        AppState::Settings(state) => settings_click(state, local_y),
         _ => InputResult::Redraw,
     }
 }
@@ -1472,4 +1505,935 @@ fn filebrowser_input(state: &mut FileBrowserState, event: &KeyEvent) -> InputRes
         }
         _ => InputResult::Continue,
     }
+}
+
+// ============================================================================
+// 8. Paint — Simple Pixel Drawing App
+// ============================================================================
+
+pub struct PaintState {
+    /// Canvas pixels stored as flat array (palette indices).
+    /// Canvas is PAINT_COLS x PAINT_ROWS, each "pixel" is a 4×4 block.
+    canvas: Vec<u8>,
+    /// Current drawing colour (palette index).
+    current_color: usize,
+    /// Whether eraser mode is on.
+    eraser: bool,
+}
+
+const PAINT_COLS: usize = 100;
+const PAINT_ROWS: usize = 70;
+const PAINT_SCALE: u32 = 4;
+
+const PAINT_PALETTE: [Color; 16] = [
+    Color::BLACK,
+    Color::rgb(0xFF, 0xFF, 0xFF),
+    Color::rgb(0xFF, 0x00, 0x00),
+    Color::rgb(0x00, 0xFF, 0x00),
+    Color::rgb(0x00, 0x00, 0xFF),
+    Color::rgb(0xFF, 0xFF, 0x00),
+    Color::rgb(0xFF, 0x00, 0xFF),
+    Color::rgb(0x00, 0xFF, 0xFF),
+    Color::rgb(0x80, 0x00, 0x00),
+    Color::rgb(0x00, 0x80, 0x00),
+    Color::rgb(0x00, 0x00, 0x80),
+    Color::rgb(0x80, 0x80, 0x00),
+    Color::rgb(0x80, 0x00, 0x80),
+    Color::rgb(0x00, 0x80, 0x80),
+    Color::rgb(0x80, 0x80, 0x80),
+    Color::rgb(0xC0, 0xC0, 0xC0),
+];
+
+impl PaintState {
+    pub fn new() -> Self {
+        Self {
+            canvas: alloc::vec![1u8; PAINT_COLS * PAINT_ROWS], // white
+            current_color: 0,
+            eraser: false,
+        }
+    }
+}
+
+pub fn paint_draw(win: &Window, state: &PaintState) {
+    let cx = win.client_x();
+    let cy = win.client_y();
+    let cw = win.client_width();
+
+    // Toolbar: palette row + status
+    let toolbar_h = 20u32;
+    fill_rect(cx, cy, cw, toolbar_h, Color::rgb(0xE0, 0xE0, 0xE0));
+
+    let pal_size = 14u32;
+    for (i, &color) in PAINT_PALETTE.iter().enumerate() {
+        let px = cx + 2 + i as u32 * (pal_size + 2);
+        let py = cy + 3;
+        fill_rect(px, py, pal_size, pal_size, color);
+        if i == state.current_color {
+            // Selection border
+            let mut fb = crate::graphics::framebuffer::FRAMEBUFFER.lock();
+            for dx in 0..pal_size {
+                fb.put_pixel(px + dx, py.wrapping_sub(1), Color::rgb(0xFF, 0x00, 0x00));
+                fb.put_pixel(px + dx, py + pal_size, Color::rgb(0xFF, 0x00, 0x00));
+            }
+            for dy in 0..pal_size {
+                fb.put_pixel(px.wrapping_sub(1), py + dy, Color::rgb(0xFF, 0x00, 0x00));
+                fb.put_pixel(px + pal_size, py + dy, Color::rgb(0xFF, 0x00, 0x00));
+            }
+        }
+    }
+
+    let mode = if state.eraser { "ERZ" } else { "PEN" };
+    draw_text(cx + cw - 40, cy + 3, mode, Color::BLACK);
+
+    // Canvas
+    let canvas_y = cy + toolbar_h + 2;
+    for row in 0..PAINT_ROWS {
+        for col in 0..PAINT_COLS {
+            let idx = row * PAINT_COLS + col;
+            let color = PAINT_PALETTE[state.canvas[idx] as usize % 16];
+            let px = cx + col as u32 * PAINT_SCALE;
+            let py = canvas_y + row as u32 * PAINT_SCALE;
+            fill_rect(px, py, PAINT_SCALE, PAINT_SCALE, color);
+        }
+    }
+}
+
+pub fn paint_input(state: &mut PaintState, event: &KeyEvent) -> InputResult {
+    match event.ascii {
+        b'c' | b'C' => {
+            for p in state.canvas.iter_mut() { *p = 1; }
+            InputResult::Redraw
+        }
+        b'e' | b'E' => {
+            state.eraser = !state.eraser;
+            InputResult::Redraw
+        }
+        b'1'..=b'9' => {
+            let idx = (event.ascii - b'1') as usize;
+            if idx < PAINT_PALETTE.len() {
+                state.current_color = idx;
+            }
+            InputResult::Redraw
+        }
+        b'0' => {
+            state.current_color = 0;
+            InputResult::Redraw
+        }
+        _ => {
+            match event.key {
+                KeyCode::Left => {
+                    if state.current_color > 0 { state.current_color -= 1; }
+                    InputResult::Redraw
+                }
+                KeyCode::Right => {
+                    if state.current_color + 1 < PAINT_PALETTE.len() { state.current_color += 1; }
+                    InputResult::Redraw
+                }
+                _ => InputResult::Continue,
+            }
+        }
+    }
+}
+
+pub fn paint_click(state: &mut PaintState, local_x: u32, local_y: u32) -> InputResult {
+    let toolbar_h = 22u32;
+
+    // Palette click
+    if local_y < 20 {
+        let pal_size = 14u32;
+        let idx = local_x / (pal_size + 2);
+        if (idx as usize) < PAINT_PALETTE.len() {
+            state.current_color = idx as usize;
+        }
+        return InputResult::Redraw;
+    }
+
+    // Canvas click
+    if local_y >= toolbar_h {
+        let canvas_y = local_y - toolbar_h;
+        let col = (local_x / PAINT_SCALE) as usize;
+        let row = (canvas_y / PAINT_SCALE) as usize;
+        if col < PAINT_COLS && row < PAINT_ROWS {
+            let idx = row * PAINT_COLS + col;
+            if state.eraser {
+                state.canvas[idx] = 1; // white
+            } else {
+                state.canvas[idx] = state.current_color as u8;
+            }
+        }
+        return InputResult::Redraw;
+    }
+
+    InputResult::Continue
+}
+
+// ============================================================================
+// 9. Minesweeper
+// ============================================================================
+
+const MINE_ROWS: usize = 12;
+const MINE_COLS: usize = 12;
+const MINE_COUNT: usize = 20;
+const CELL_SIZE: u32 = 22;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CellState {
+    Hidden,
+    Revealed,
+    Flagged,
+}
+
+pub struct MinesweeperState {
+    mines: [bool; MINE_ROWS * MINE_COLS],
+    states: [CellState; MINE_ROWS * MINE_COLS],
+    adjacent: [u8; MINE_ROWS * MINE_COLS],
+    cursor_row: usize,
+    cursor_col: usize,
+    game_over: bool,
+    won: bool,
+}
+
+impl MinesweeperState {
+    pub fn new() -> Self {
+        Self {
+            mines: [false; MINE_ROWS * MINE_COLS],
+            states: [CellState::Hidden; MINE_ROWS * MINE_COLS],
+            adjacent: [0; MINE_ROWS * MINE_COLS],
+            cursor_row: 0,
+            cursor_col: 0,
+            game_over: false,
+            won: false,
+        }
+    }
+}
+
+pub fn minesweeper_init(state: &mut MinesweeperState) {
+    // Place mines using a simple LCG seeded from PIT ticks
+    let mut seed = crate::shell::ticks() as u32;
+    let total = MINE_ROWS * MINE_COLS;
+
+    for m in state.mines.iter_mut() { *m = false; }
+    for s in state.states.iter_mut() { *s = CellState::Hidden; }
+    state.game_over = false;
+    state.won = false;
+    state.cursor_row = 0;
+    state.cursor_col = 0;
+
+    let mut placed = 0usize;
+    while placed < MINE_COUNT {
+        seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+        let idx = ((seed >> 16) as usize) % total;
+        if !state.mines[idx] {
+            state.mines[idx] = true;
+            placed += 1;
+        }
+    }
+
+    // Compute adjacency
+    for r in 0..MINE_ROWS {
+        for c in 0..MINE_COLS {
+            let mut count = 0u8;
+            for dr in [-1i32, 0, 1] {
+                for dc in [-1i32, 0, 1] {
+                    if dr == 0 && dc == 0 { continue; }
+                    let nr = r as i32 + dr;
+                    let nc = c as i32 + dc;
+                    if nr >= 0 && nr < MINE_ROWS as i32 && nc >= 0 && nc < MINE_COLS as i32 {
+                        if state.mines[nr as usize * MINE_COLS + nc as usize] {
+                            count += 1;
+                        }
+                    }
+                }
+            }
+            state.adjacent[r * MINE_COLS + c] = count;
+        }
+    }
+}
+
+fn minesweeper_reveal(state: &mut MinesweeperState, r: usize, c: usize) {
+    if r >= MINE_ROWS || c >= MINE_COLS { return; }
+    let idx = r * MINE_COLS + c;
+    if state.states[idx] != CellState::Hidden { return; }
+
+    state.states[idx] = CellState::Revealed;
+
+    if state.mines[idx] {
+        state.game_over = true;
+        for i in 0..MINE_ROWS * MINE_COLS {
+            if state.mines[i] { state.states[i] = CellState::Revealed; }
+        }
+        return;
+    }
+
+    if state.adjacent[idx] == 0 {
+        for dr in [-1i32, 0, 1] {
+            for dc in [-1i32, 0, 1] {
+                if dr == 0 && dc == 0 { continue; }
+                let nr = r as i32 + dr;
+                let nc = c as i32 + dc;
+                if nr >= 0 && nr < MINE_ROWS as i32 && nc >= 0 && nc < MINE_COLS as i32 {
+                    minesweeper_reveal(state, nr as usize, nc as usize);
+                }
+            }
+        }
+    }
+}
+
+fn minesweeper_check_win(state: &mut MinesweeperState) {
+    let mut all_revealed = true;
+    for i in 0..MINE_ROWS * MINE_COLS {
+        if !state.mines[i] && state.states[i] != CellState::Revealed {
+            all_revealed = false;
+            break;
+        }
+    }
+    if all_revealed {
+        state.won = true;
+        state.game_over = true;
+    }
+}
+
+pub fn minesweeper_draw(win: &Window, state: &MinesweeperState) {
+    let cx = win.client_x();
+    let cy = win.client_y();
+    let cw = win.client_width();
+
+    // Header
+    let header_y = cy;
+    let status = if state.won {
+        "YOU WIN! Press R to restart"
+    } else if state.game_over {
+        "BOOM! Game Over. Press R"
+    } else {
+        "Arrows:move Space:reveal F:flag"
+    };
+    fill_rect(cx, header_y, cw, CHAR_HEIGHT + 4, Color::rgb(0xE0, 0xE0, 0xE0));
+    draw_text(cx + 4, header_y + 2, status, Color::BLACK);
+
+    let grid_y = cy + CHAR_HEIGHT + 8;
+
+    for r in 0..MINE_ROWS {
+        for c in 0..MINE_COLS {
+            let idx = r * MINE_COLS + c;
+            let px = cx + 4 + c as u32 * CELL_SIZE;
+            let py = grid_y + r as u32 * CELL_SIZE;
+
+            let is_cursor = r == state.cursor_row && c == state.cursor_col;
+
+            match state.states[idx] {
+                CellState::Hidden => {
+                    fill_rect(px, py, CELL_SIZE - 1, CELL_SIZE - 1, super::BUTTON_FACE);
+                    super::draw_raised_rect(px, py, CELL_SIZE - 1, CELL_SIZE - 1);
+                }
+                CellState::Flagged => {
+                    fill_rect(px, py, CELL_SIZE - 1, CELL_SIZE - 1, super::BUTTON_FACE);
+                    super::draw_raised_rect(px, py, CELL_SIZE - 1, CELL_SIZE - 1);
+                    draw_text(px + 5, py + 3, "F", Color::rgb(0xFF, 0x00, 0x00));
+                }
+                CellState::Revealed => {
+                    fill_rect(px, py, CELL_SIZE - 1, CELL_SIZE - 1, Color::rgb(0xE0, 0xE0, 0xE0));
+                    draw_sunken_rect(px, py, CELL_SIZE - 1, CELL_SIZE - 1);
+
+                    if state.mines[idx] {
+                        draw_text(px + 5, py + 3, "*", Color::rgb(0xFF, 0x00, 0x00));
+                    } else if state.adjacent[idx] > 0 {
+                        let n = state.adjacent[idx];
+                        let color = match n {
+                            1 => Color::rgb(0x00, 0x00, 0xFF),
+                            2 => Color::rgb(0x00, 0x80, 0x00),
+                            3 => Color::rgb(0xFF, 0x00, 0x00),
+                            4 => Color::rgb(0x00, 0x00, 0x80),
+                            _ => Color::rgb(0x80, 0x00, 0x00),
+                        };
+                        let mut buf = [0u8; 1];
+                        buf[0] = b'0' + n;
+                        let s = core::str::from_utf8(&buf).unwrap_or("?");
+                        draw_text(px + 7, py + 3, s, color);
+                    }
+                }
+            }
+
+            // Cursor highlight
+            if is_cursor && !state.game_over {
+                let mut fb = crate::graphics::framebuffer::FRAMEBUFFER.lock();
+                let cs = CELL_SIZE - 1;
+                for d in 0..cs {
+                    fb.put_pixel(px + d, py, Color::rgb(0xFF, 0xFF, 0x00));
+                    fb.put_pixel(px + d, py + cs - 1, Color::rgb(0xFF, 0xFF, 0x00));
+                    fb.put_pixel(px, py + d, Color::rgb(0xFF, 0xFF, 0x00));
+                    fb.put_pixel(px + cs - 1, py + d, Color::rgb(0xFF, 0xFF, 0x00));
+                }
+            }
+        }
+    }
+}
+
+pub fn minesweeper_input(state: &mut MinesweeperState, event: &KeyEvent) -> InputResult {
+    if state.game_over {
+        if event.ascii == b'r' || event.ascii == b'R' {
+            minesweeper_init(state);
+            return InputResult::Redraw;
+        }
+        return InputResult::Continue;
+    }
+
+    match event.key {
+        KeyCode::Up => {
+            if state.cursor_row > 0 { state.cursor_row -= 1; }
+            InputResult::Redraw
+        }
+        KeyCode::Down => {
+            if state.cursor_row + 1 < MINE_ROWS { state.cursor_row += 1; }
+            InputResult::Redraw
+        }
+        KeyCode::Left => {
+            if state.cursor_col > 0 { state.cursor_col -= 1; }
+            InputResult::Redraw
+        }
+        KeyCode::Right => {
+            if state.cursor_col + 1 < MINE_COLS { state.cursor_col += 1; }
+            InputResult::Redraw
+        }
+        KeyCode::Space | KeyCode::Enter => {
+            let idx = state.cursor_row * MINE_COLS + state.cursor_col;
+            if state.states[idx] == CellState::Hidden {
+                minesweeper_reveal(state, state.cursor_row, state.cursor_col);
+                if !state.game_over {
+                    minesweeper_check_win(state);
+                }
+            }
+            InputResult::Redraw
+        }
+        _ => {
+            if event.ascii == b'f' || event.ascii == b'F' {
+                let idx = state.cursor_row * MINE_COLS + state.cursor_col;
+                match state.states[idx] {
+                    CellState::Hidden => state.states[idx] = CellState::Flagged,
+                    CellState::Flagged => state.states[idx] = CellState::Hidden,
+                    _ => {}
+                }
+                InputResult::Redraw
+            } else {
+                InputResult::Continue
+            }
+        }
+    }
+}
+
+pub fn minesweeper_click(state: &mut MinesweeperState, local_x: u32, local_y: u32) -> InputResult {
+    if state.game_over { return InputResult::Continue; }
+
+    let header_h = CHAR_HEIGHT + 8;
+    if local_y < header_h { return InputResult::Continue; }
+
+    let grid_y = local_y - header_h;
+    let col = ((local_x.saturating_sub(4)) / CELL_SIZE) as usize;
+    let row = (grid_y / CELL_SIZE) as usize;
+
+    if row < MINE_ROWS && col < MINE_COLS {
+        state.cursor_row = row;
+        state.cursor_col = col;
+        let idx = row * MINE_COLS + col;
+        if state.states[idx] == CellState::Hidden {
+            minesweeper_reveal(state, row, col);
+            if !state.game_over {
+                minesweeper_check_win(state);
+            }
+        }
+        InputResult::Redraw
+    } else {
+        InputResult::Continue
+    }
+}
+
+// ============================================================================
+// 10. Snake
+// ============================================================================
+
+const SNAKE_COLS: usize = 20;
+const SNAKE_ROWS: usize = 18;
+const SNAKE_CELL: u32 = 16;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    Up, Down, Left, Right,
+}
+
+pub struct SnakeState {
+    body: Vec<(usize, usize)>, // (row, col)
+    dir: Direction,
+    food: (usize, usize),
+    game_over: bool,
+    score: u32,
+    seed: u32,
+}
+
+impl SnakeState {
+    pub fn new() -> Self {
+        Self {
+            body: Vec::new(),
+            dir: Direction::Right,
+            food: (0, 0),
+            game_over: false,
+            score: 0,
+            seed: 0,
+        }
+    }
+}
+
+pub fn snake_init(state: &mut SnakeState) {
+    state.body.clear();
+    let mid_r = SNAKE_ROWS / 2;
+    let mid_c = SNAKE_COLS / 2;
+    state.body.push((mid_r, mid_c));
+    state.body.push((mid_r, mid_c - 1));
+    state.body.push((mid_r, mid_c - 2));
+    state.dir = Direction::Right;
+    state.game_over = false;
+    state.score = 0;
+    state.seed = crate::shell::ticks() as u32;
+    snake_place_food(state);
+}
+
+fn snake_place_food(state: &mut SnakeState) {
+    let total = SNAKE_COLS * SNAKE_ROWS;
+    for _ in 0..total {
+        state.seed = state.seed.wrapping_mul(1103515245).wrapping_add(12345);
+        let r = ((state.seed >> 16) as usize) % SNAKE_ROWS;
+        state.seed = state.seed.wrapping_mul(1103515245).wrapping_add(12345);
+        let c = ((state.seed >> 16) as usize) % SNAKE_COLS;
+        if !state.body.contains(&(r, c)) {
+            state.food = (r, c);
+            return;
+        }
+    }
+}
+
+fn snake_step(state: &mut SnakeState) {
+    if state.game_over { return; }
+
+    let (hr, hc) = state.body[0];
+    let (nr, nc) = match state.dir {
+        Direction::Up => (hr.wrapping_sub(1), hc),
+        Direction::Down => (hr + 1, hc),
+        Direction::Left => (hr, hc.wrapping_sub(1)),
+        Direction::Right => (hr, hc + 1),
+    };
+
+    if nr >= SNAKE_ROWS || nc >= SNAKE_COLS {
+        state.game_over = true;
+        return;
+    }
+
+    if state.body.contains(&(nr, nc)) {
+        state.game_over = true;
+        return;
+    }
+
+    state.body.insert(0, (nr, nc));
+
+    if (nr, nc) == state.food {
+        state.score += 10;
+        snake_place_food(state);
+    } else {
+        state.body.pop();
+    }
+}
+
+pub fn snake_draw(win: &Window, state: &SnakeState) {
+    let cx = win.client_x();
+    let cy = win.client_y();
+    let cw = win.client_width();
+
+    // Header
+    let mut header = String::new();
+    if state.game_over {
+        write!(header, "Game Over! Score: {}  R=restart", state.score).ok();
+    } else {
+        write!(header, "Score: {}  Arrows=move Space=step", state.score).ok();
+    }
+    fill_rect(cx, cy, cw, CHAR_HEIGHT + 2, Color::rgb(0xE0, 0xE0, 0xE0));
+    draw_text(cx + 4, cy + 1, &header, Color::BLACK);
+
+    let grid_y = cy + CHAR_HEIGHT + 6;
+
+    // Background grid
+    for r in 0..SNAKE_ROWS {
+        for c in 0..SNAKE_COLS {
+            let px = cx + 4 + c as u32 * SNAKE_CELL;
+            let py = grid_y + r as u32 * SNAKE_CELL;
+            let bg = if (r + c) % 2 == 0 {
+                Color::rgb(0xA0, 0xD0, 0xA0)
+            } else {
+                Color::rgb(0x90, 0xC0, 0x90)
+            };
+            fill_rect(px, py, SNAKE_CELL, SNAKE_CELL, bg);
+        }
+    }
+
+    // Food
+    let (fr, fc) = state.food;
+    let fx = cx + 4 + fc as u32 * SNAKE_CELL + 2;
+    let fy = grid_y + fr as u32 * SNAKE_CELL + 2;
+    fill_rect(fx, fy, SNAKE_CELL - 4, SNAKE_CELL - 4, Color::rgb(0xFF, 0x00, 0x00));
+
+    // Snake body
+    for (i, &(r, c)) in state.body.iter().enumerate() {
+        let px = cx + 4 + c as u32 * SNAKE_CELL + 1;
+        let py = grid_y + r as u32 * SNAKE_CELL + 1;
+        let color = if i == 0 {
+            Color::rgb(0x00, 0x80, 0x00) // head
+        } else {
+            Color::rgb(0x00, 0xC0, 0x00) // body
+        };
+        fill_rect(px, py, SNAKE_CELL - 2, SNAKE_CELL - 2, color);
+    }
+}
+
+pub fn snake_input(state: &mut SnakeState, event: &KeyEvent) -> InputResult {
+    if state.game_over {
+        if event.ascii == b'r' || event.ascii == b'R' {
+            snake_init(state);
+            return InputResult::Redraw;
+        }
+        return InputResult::Continue;
+    }
+
+    match event.key {
+        KeyCode::Up    => { if state.dir != Direction::Down  { state.dir = Direction::Up; } }
+        KeyCode::Down  => { if state.dir != Direction::Up    { state.dir = Direction::Down; } }
+        KeyCode::Left  => { if state.dir != Direction::Right { state.dir = Direction::Left; } }
+        KeyCode::Right => { if state.dir != Direction::Left  { state.dir = Direction::Right; } }
+        KeyCode::Space => {
+            snake_step(state);
+            return InputResult::Redraw;
+        }
+        _ => return InputResult::Continue,
+    }
+
+    // Also step on each direction key
+    snake_step(state);
+    InputResult::Redraw
+}
+
+// ============================================================================
+// 11. Settings
+// ============================================================================
+
+pub struct SettingsState {
+    selected: usize,
+    items: Vec<SettingsItem>,
+}
+
+struct SettingsItem {
+    label: String,
+    kind: SettingsKind,
+}
+
+enum SettingsKind {
+    Toggle(bool),
+    Value(String),
+}
+
+impl SettingsState {
+    pub fn new() -> Self {
+        Self {
+            selected: 0,
+            items: Vec::new(),
+        }
+    }
+}
+
+pub fn settings_init(state: &mut SettingsState) {
+    state.items.clear();
+
+    // Read current theme from disk
+    let theme = if let Some(data) = crate::storage::vfs::read_file("/system/theme.cfg") {
+        String::from(core::str::from_utf8(&data).unwrap_or("default").trim())
+    } else {
+        String::from("default")
+    };
+    state.items.push(SettingsItem {
+        label: String::from("Console Theme"),
+        kind: SettingsKind::Value(String::from(theme)),
+    });
+
+    // Memory info
+    let free = crate::memory::frame_allocator::free_frame_count();
+    let total = crate::memory::frame_allocator::total_frame_count();
+    let mut mem_str = String::new();
+    write!(mem_str, "{}/{} KiB", (total - free) * 4, total * 4).ok();
+    state.items.push(SettingsItem {
+        label: String::from("Memory Usage"),
+        kind: SettingsKind::Value(mem_str),
+    });
+
+    // Uptime
+    let ticks = crate::shell::ticks();
+    let ms = crate::hal::pit::ticks_to_ms(ticks);
+    let secs = ms / 1000;
+    let mut up_str = String::new();
+    write!(up_str, "{}s", secs).ok();
+    state.items.push(SettingsItem {
+        label: String::from("Uptime"),
+        kind: SettingsKind::Value(up_str),
+    });
+
+    // Storage
+    let disk_ready = crate::storage::vfs::is_ready();
+    state.items.push(SettingsItem {
+        label: String::from("Disk Mounted"),
+        kind: SettingsKind::Toggle(disk_ready),
+    });
+
+    state.items.push(SettingsItem {
+        label: String::from("Screen Resolution"),
+        kind: SettingsKind::Value(String::from("1920x1080")),
+    });
+
+    state.items.push(SettingsItem {
+        label: String::from("OS Version"),
+        kind: SettingsKind::Value(String::from(env!("CARGO_PKG_VERSION"))),
+    });
+}
+
+pub fn settings_draw(win: &Window, state: &SettingsState) {
+    let cx = win.client_x();
+    let cy = win.client_y();
+    let cw = win.client_width();
+    let ch = win.client_height();
+
+    // Title bar
+    fill_rect(cx, cy, cw, CHAR_HEIGHT + 4, super::TITLE_ACTIVE);
+    draw_text(cx + 8, cy + 2, "  System Settings", Color::WHITE);
+
+    let row_h = CHAR_HEIGHT + 8;
+    let start_y = cy + CHAR_HEIGHT + 8;
+
+    for (i, item) in state.items.iter().enumerate() {
+        let y = start_y + i as u32 * row_h;
+        if y + row_h > cy + ch { break; }
+
+        let selected = i == state.selected;
+        if selected {
+            fill_rect(cx, y, cw, row_h, Color::rgb(0xD0, 0xD0, 0xFF));
+        }
+
+        draw_text(cx + 8, y + 4, &item.label, Color::BLACK);
+
+        let val_str = match &item.kind {
+            SettingsKind::Toggle(v) => if *v { "[ON]" } else { "[OFF]" },
+            SettingsKind::Value(s) => s.as_str(),
+        };
+
+        // Right-align value
+        let val_x = cx + cw - 8 - val_str.len() as u32 * CHAR_WIDTH;
+        draw_text(val_x, y + 4, val_str, Color::rgb(0x00, 0x00, 0x80));
+    }
+
+    // Footer
+    let footer_y = cy + ch - CHAR_HEIGHT - 4;
+    draw_text(cx + 4, footer_y, "[Up/Down] Navigate  [R] Refresh", Color::rgb(0x80, 0x80, 0x80));
+}
+
+pub fn settings_input(state: &mut SettingsState, event: &KeyEvent) -> InputResult {
+    match event.key {
+        KeyCode::Up => {
+            if state.selected > 0 { state.selected -= 1; }
+            InputResult::Redraw
+        }
+        KeyCode::Down => {
+            if state.selected + 1 < state.items.len() { state.selected += 1; }
+            InputResult::Redraw
+        }
+        _ => {
+            if event.ascii == b'r' || event.ascii == b'R' {
+                settings_init(state);
+                InputResult::Redraw
+            } else {
+                InputResult::Continue
+            }
+        }
+    }
+}
+
+pub fn settings_click(state: &mut SettingsState, local_y: u32) -> InputResult {
+    let header_h = CHAR_HEIGHT + 8;
+    if local_y < header_h { return InputResult::Continue; }
+    let row_h = CHAR_HEIGHT + 8;
+    let row = ((local_y - header_h) / row_h) as usize;
+    if row < state.items.len() {
+        state.selected = row;
+        InputResult::Redraw
+    } else {
+        InputResult::Continue
+    }
+}
+
+// ============================================================================
+// 12. Clock — Analog/Digital Clock
+// ============================================================================
+
+pub struct ClockState {
+    _dummy: u8,
+}
+
+impl ClockState {
+    pub fn new() -> Self {
+        Self { _dummy: 0 }
+    }
+}
+
+pub fn clock_draw(win: &Window, _state: &ClockState) {
+    let cx = win.client_x();
+    let cy = win.client_y();
+    let cw = win.client_width();
+    let ch = win.client_height();
+
+    let dt = crate::hal::rtc::read_datetime();
+
+    // Digital clock display
+    let mut time_str = String::new();
+    write!(time_str, "{:02}:{:02}:{:02}", dt.hour, dt.minute, dt.second).ok();
+
+    let mut date_str = String::new();
+    write!(date_str, "{:04}-{:02}-{:02}", dt.year, dt.month, dt.day).ok();
+
+    // Background panel
+    let panel_x = cx + 10;
+    let panel_w = cw - 20;
+    let panel_h = CHAR_HEIGHT * 3 + 50;
+    fill_rect(panel_x, cy + 10, panel_w, panel_h, Color::rgb(0x10, 0x10, 0x30));
+    draw_sunken_rect(panel_x, cy + 10, panel_w, panel_h);
+
+    // 3× scale time digits
+    let text_w = time_str.len() as u32 * CHAR_WIDTH * 3;
+    let text_x = cx + (cw.saturating_sub(text_w)) / 2;
+    let text_y = cy + 30;
+
+    {
+        let mut fb = crate::graphics::framebuffer::FRAMEBUFFER.lock();
+        for (ci, c) in time_str.chars().enumerate() {
+            let bitmap = crate::graphics::font::get_char_bitmap(c);
+            for (dy, &row_bits) in bitmap.iter().enumerate() {
+                for dx in 0..8u32 {
+                    if (row_bits >> (7 - dx)) & 1 != 0 {
+                        for sy in 0..3u32 {
+                            for sx in 0..3u32 {
+                                let px = text_x + ci as u32 * CHAR_WIDTH * 3 + dx * 3 + sx;
+                                let py = text_y + dy as u32 * 3 + sy;
+                                fb.put_pixel(px, py, Color::rgb(0x00, 0xFF, 0x80));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Date below
+    let date_w = date_str.len() as u32 * CHAR_WIDTH;
+    let date_x = cx + (cw.saturating_sub(date_w)) / 2;
+    let date_y = text_y + CHAR_HEIGHT * 3 + 12;
+    draw_text(date_x, date_y, &date_str, Color::rgb(0x80, 0xC0, 0xFF));
+
+    // Day of week
+    let dow = day_of_week(dt.year as u32, dt.month as u32, dt.day as u32);
+    let dow_name = match dow {
+        0 => "Sunday", 1 => "Monday", 2 => "Tuesday", 3 => "Wednesday",
+        4 => "Thursday", 5 => "Friday", 6 => "Saturday", _ => "???",
+    };
+    let dow_x = cx + (cw.saturating_sub(dow_name.len() as u32 * CHAR_WIDTH)) / 2;
+    let dow_y = date_y + CHAR_HEIGHT + 4;
+    draw_text(dow_x, dow_y, dow_name, Color::rgb(0xFF, 0xFF, 0x80));
+
+    // Analog clock face
+    let analog_y = cy + panel_h + 24;
+    let available_h = ch.saturating_sub(panel_h + 34);
+    let radius = available_h.min(cw) / 2 - 10;
+    let center_x = cx + cw / 2;
+    let center_y = analog_y + available_h / 2;
+
+    if radius > 20 {
+        let mut fb = crate::graphics::framebuffer::FRAMEBUFFER.lock();
+        // Clock face circle
+        for angle_deg in 0..360 {
+            let a = (angle_deg as f32) * 3.14159265 / 180.0;
+            let px = center_x as f32 + radius as f32 * cos_approx(a);
+            let py = center_y as f32 + radius as f32 * sin_approx(a);
+            fb.put_pixel(px as u32, py as u32, Color::BLACK);
+        }
+
+        // Hour markers
+        for h in 0..12 {
+            let a = (h as f32) * 3.14159265 / 6.0 - 3.14159265 / 2.0;
+            let inner = radius as f32 * 0.85;
+            let outer = radius as f32 * 0.95;
+            for t in 0..10 {
+                let f = inner + (outer - inner) * t as f32 / 10.0;
+                let px = center_x as f32 + f * cos_approx(a);
+                let py = center_y as f32 + f * sin_approx(a);
+                fb.put_pixel(px as u32, py as u32, Color::BLACK);
+            }
+        }
+
+        // Hour hand
+        let h_angle = ((dt.hour % 12) as f32 + dt.minute as f32 / 60.0) * 3.14159265 / 6.0 - 3.14159265 / 2.0;
+        let h_len = radius as f32 * 0.5;
+        draw_hand(&mut fb, center_x, center_y, h_angle, h_len, Color::BLACK);
+
+        // Minute hand
+        let m_angle = (dt.minute as f32 + dt.second as f32 / 60.0) * 3.14159265 / 30.0 - 3.14159265 / 2.0;
+        let m_len = radius as f32 * 0.7;
+        draw_hand(&mut fb, center_x, center_y, m_angle, m_len, Color::rgb(0x00, 0x00, 0x80));
+
+        // Second hand
+        let s_angle = dt.second as f32 * 3.14159265 / 30.0 - 3.14159265 / 2.0;
+        let s_len = radius as f32 * 0.8;
+        draw_hand(&mut fb, center_x, center_y, s_angle, s_len, Color::rgb(0xFF, 0x00, 0x00));
+
+        // Centre dot
+        for dy in 0..3u32 {
+            for dx in 0..3u32 {
+                fb.put_pixel(center_x - 1 + dx, center_y - 1 + dy, Color::BLACK);
+            }
+        }
+    }
+}
+
+/// Simple sine approximation (Bhaskara I formula)
+fn sin_approx(x: f32) -> f32 {
+    let pi = 3.14159265f32;
+    let mut a = x % (2.0 * pi);
+    if a < 0.0 { a += 2.0 * pi; }
+    let sign = if a > pi { a -= pi; -1.0 } else { 1.0 };
+    sign * (16.0 * a * (pi - a)) / (5.0 * pi * pi - 4.0 * a * (pi - a))
+}
+
+fn cos_approx(x: f32) -> f32 {
+    sin_approx(x + 3.14159265 / 2.0)
+}
+
+/// Draw a clock hand as a thick line from centre to endpoint.
+fn draw_hand(fb: &mut crate::graphics::framebuffer::Framebuffer, cx: u32, cy: u32, angle: f32, length: f32, color: Color) {
+    let steps = (length * 2.0) as u32;
+    for t in 0..steps {
+        let f = t as f32 / steps as f32;
+        let px = cx as f32 + length * f * cos_approx(angle);
+        let py = cy as f32 + length * f * sin_approx(angle);
+        let px = px as u32;
+        let py = py as u32;
+        fb.put_pixel(px, py, color);
+        fb.put_pixel(px + 1, py, color);
+        fb.put_pixel(px, py + 1, color);
+    }
+}
+
+/// Zeller-like day-of-week: 0=Sun, 1=Mon, ... 6=Sat
+fn day_of_week(mut y: u32, mut m: u32, d: u32) -> u32 {
+    if m < 3 {
+        m += 12;
+        y -= 1;
+    }
+    (d + (13 * (m + 1)) / 5 + y + y / 4 - y / 100 + y / 400 + 6) % 7
 }

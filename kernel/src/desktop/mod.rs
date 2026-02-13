@@ -284,6 +284,106 @@ pub const ICON_FOLDER: [u16; 16] = [
     0b0000000000000000,
 ];
 
+/// Paint brush icon
+pub const ICON_PAINT: [u16; 16] = [
+    0b0000000000111000,
+    0b0000000001001100,
+    0b0000000010001100,
+    0b0000000100011000,
+    0b0000001000110000,
+    0b0000010001100000,
+    0b0000100011000000,
+    0b0001000110000000,
+    0b0010001100000000,
+    0b0011011000000000,
+    0b0011110000000000,
+    0b0011100000000000,
+    0b0011100000000000,
+    0b0001100000000000,
+    0b0001100000000000,
+    0b0000000000000000,
+];
+
+/// Mine icon
+pub const ICON_MINE: [u16; 16] = [
+    0b0000001001000000,
+    0b0010000100001000,
+    0b0001001111001000,
+    0b0000011111100000,
+    0b0001111111110000,
+    0b0001111111110000,
+    0b0011111111111000,
+    0b0011111111111000,
+    0b0001111111110000,
+    0b0001111111110000,
+    0b0000011111100000,
+    0b0001001111001000,
+    0b0010000100001000,
+    0b0000001001000000,
+    0b0000000000000000,
+    0b0000000000000000,
+];
+
+/// Snake icon
+pub const ICON_SNAKE: [u16; 16] = [
+    0b0000000000000000,
+    0b0000001111000000,
+    0b0000010000100000,
+    0b0000010110100000,
+    0b0000010000100000,
+    0b0000001111000000,
+    0b0000001000000000,
+    0b0111111000000000,
+    0b1000000000000000,
+    0b1000001111111110,
+    0b0111110000000010,
+    0b0000000000000010,
+    0b0011111111111110,
+    0b0010000000000000,
+    0b0011111111111000,
+    0b0000000000000000,
+];
+
+/// Settings gear icon
+pub const ICON_SETTINGS: [u16; 16] = [
+    0b0000011011000000,
+    0b0000111111100000,
+    0b0001111111110000,
+    0b0011100110011100,
+    0b0111100110011110,
+    0b0111000000001110,
+    0b1111000000001111,
+    0b1111000000001111,
+    0b1111000000001111,
+    0b0111000000001110,
+    0b0111100110011110,
+    0b0011100110011100,
+    0b0001111111110000,
+    0b0000111111100000,
+    0b0000011011000000,
+    0b0000000000000000,
+];
+
+/// Clock icon
+pub const ICON_CLOCK: [u16; 16] = [
+    0b0000111111000000,
+    0b0011000000110000,
+    0b0100000100001000,
+    0b1000000100000100,
+    0b1000000100000100,
+    0b1000000100000100,
+    0b1000000111100100,
+    0b1000000000000100,
+    0b1000000000000100,
+    0b0100000000001000,
+    0b0011000000110000,
+    0b0000111111000000,
+    0b0000000000000000,
+    0b0000000000000000,
+    0b0000000000000000,
+    0b0000000000000000,
+];
+
 // ============================================================================
 // Mouse Cursor (12x19 arrow pointer)
 // ============================================================================
@@ -525,6 +625,41 @@ impl DesktopState {
                 app_id: apps::AppId::FileBrowser,
                 x: icon_x,
                 y: icon_start_y + icon_spacing_y * 6,
+            },
+            DesktopIcon {
+                name: "Paint",
+                icon: &ICON_PAINT,
+                app_id: apps::AppId::Paint,
+                x: icon_x,
+                y: icon_start_y + icon_spacing_y * 7,
+            },
+            DesktopIcon {
+                name: "Minesweeper",
+                icon: &ICON_MINE,
+                app_id: apps::AppId::Minesweeper,
+                x: icon_x,
+                y: icon_start_y + icon_spacing_y * 8,
+            },
+            DesktopIcon {
+                name: "Snake",
+                icon: &ICON_SNAKE,
+                app_id: apps::AppId::Snake,
+                x: icon_x,
+                y: icon_start_y + icon_spacing_y * 9,
+            },
+            DesktopIcon {
+                name: "Settings",
+                icon: &ICON_SETTINGS,
+                app_id: apps::AppId::Settings,
+                x: icon_x,
+                y: icon_start_y + icon_spacing_y * 10,
+            },
+            DesktopIcon {
+                name: "Clock",
+                icon: &ICON_CLOCK,
+                app_id: apps::AppId::Clock,
+                x: icon_x,
+                y: icon_start_y + icon_spacing_y * 11,
             },
         ];
 
@@ -1054,6 +1189,11 @@ fn start_menu_items() -> Vec<(&'static str, Option<apps::AppId>)> {
         ("  About CantayaOS", Some(apps::AppId::About)),
         ("  Terminal",      Some(apps::AppId::Terminal)),
         ("  File Browser",  Some(apps::AppId::FileBrowser)),
+        ("  Paint",         Some(apps::AppId::Paint)),
+        ("  Minesweeper",   Some(apps::AppId::Minesweeper)),
+        ("  Snake",         Some(apps::AppId::Snake)),
+        ("  Settings",      Some(apps::AppId::Settings)),
+        ("  Clock",         Some(apps::AppId::Clock)),
         ("  ─────────────", None), // separator (will skip in input)
         ("  Exit to Shell", None),
     ]

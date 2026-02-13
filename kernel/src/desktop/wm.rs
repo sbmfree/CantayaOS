@@ -119,6 +119,11 @@ impl Window {
             AppId::About       => ("About CantayaOS", 400u32, 280u32),
             AppId::Terminal    => ("Terminal", 600u32, 400u32),
             AppId::FileBrowser => ("File Browser", 480u32, 400u32),
+            AppId::Paint       => ("Paint", 500u32, 400u32),
+            AppId::Minesweeper => ("Minesweeper", 320u32, 380u32),
+            AppId::Snake       => ("Snake", 340u32, 380u32),
+            AppId::Settings    => ("Settings", 400u32, 360u32),
+            AppId::Clock       => ("Clock", 280u32, 240u32),
         };
 
         // Center the window, offset by id to cascade

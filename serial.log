@@ -88,3 +88,4 @@ BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x
 [INFO ] cantaya_kernel::graphics: Graphics subsystem initialized
 [INFO ] cantaya_kernel: All subsystems initialized — launching shell
 [INFO ] cantaya_kernel::shell: Running /Windows/System32/Config/autoexec.cfg
+[INFO ] cantaya_kernel::memory::heap: Heap grew by 7936 KiB (now 8960 KiB total)
