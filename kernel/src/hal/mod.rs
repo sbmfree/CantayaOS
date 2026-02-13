@@ -29,6 +29,8 @@ pub mod mouse;
 pub mod rtc;
 pub mod acpi;
 pub mod pci;
+pub mod virtio;
+pub mod virtio_blk;
 
 /// Initialize all HAL subsystems.
 ///

@@ -284,6 +284,7 @@ exception_handler!(machine_check_handler, handle_machine_check);
 exception_handler!(simd_fp_handler, handle_simd_fp);
 exception_handler!(keyboard_handler, handle_keyboard);
 exception_handler!(mouse_handler, handle_mouse);
+exception_handler!(virtio_handler, handle_virtio);
 
 // Timer handler — custom naked stub for context switching.
 //
@@ -499,6 +500,17 @@ extern "C" fn handle_mouse(_frame: &InterruptStackFrame) {
     }
 }
 
+extern "C" fn handle_virtio(_frame: &InterruptStackFrame) {
+    // Dispatch to the virtio-blk driver
+    super::virtio_blk::handle_interrupt();
+
+    // Virtio typically uses a slave PIC IRQ (IRQ 10/11) — send EOI to both PICs
+    unsafe {
+        super::port::outb(0xA0, 0x20); // EOI to slave PIC
+        super::port::outb(0x20, 0x20); // EOI to master PIC (cascade)
+    }
+}
+
 /// Halt the CPU forever (used after unrecoverable exceptions)
 fn halt_loop() -> ! {
     loop {
@@ -506,4 +518,29 @@ fn halt_loop() -> ! {
             core::arch::asm!("cli; hlt");
         }
     }
+}
+
+/// Register the virtio interrupt handler at the given IRQ vector.
+///
+/// This is called at runtime once the PCI interrupt line is known.
+/// The IRQ number (0-15) maps to IDT vector 32+irq.
+pub fn register_virtio_irq(irq: u8) {
+    if irq >= 16 {
+        log::warn!("IDT: invalid IRQ {} for virtio handler", irq);
+        return;
+    }
+    let vector = 32 + irq as usize;
+    unsafe {
+        IDT.entries[vector] = IdtEntry::interrupt_gate(virtio_handler as u64, 0);
+        // Reload IDT
+        let idt_descriptor = IdtDescriptor {
+            size: (core::mem::size_of::<Idt>() - 1) as u16,
+            offset: &IDT as *const _ as u64,
+        };
+        core::arch::asm!(
+            "lidt [{}]",
+            in(reg) &idt_descriptor,
+        );
+    }
+    log::info!("IDT: registered virtio handler at vector {} (IRQ {})", vector, irq);
 }

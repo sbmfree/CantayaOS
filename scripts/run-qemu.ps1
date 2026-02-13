@@ -60,6 +60,10 @@ $QemuArgs = @(
     # Mount our ESP directory as a FAT filesystem
     "-drive", "format=raw,file=fat:rw:target/esp",
 
+    # Virtio-blk data disk (FAT32 formatted)
+    "-drive", "file=$ProjectRoot\disk.img,if=none,id=drive0,format=raw",
+    "-device", "virtio-blk-pci,drive=drive0",
+
     # Display
     "-vga", "std",                        # Standard VGA (GOP compatible)
 

@@ -245,12 +245,14 @@ pub fn run() -> ! {
 /// Simple tab completion — returns the first command matching the prefix.
 fn tab_complete(prefix: &str) -> Option<&'static str> {
     const COMMANDS: &[&str] = &[
-        "acpi", "bootinfo", "clear", "cls", "color", "cpu",
-        "date", "desktop", "echo", "halt", "help", "hexdump",
-        "interrupts", "irq", "kill", "lspci", "mem", "memory",
-        "memmap", "panic", "pci", "priority", "ps", "reboot",
-        "shutdown", "sleep", "spawn", "sysinfo", "tasks", "tick",
-        "uptime", "ver", "version", "yield",
+        "acpi", "bootinfo", "cat", "cd", "clear", "cls", "color",
+        "copy", "cp", "cpu", "date", "del", "desktop", "dir",
+        "disk", "echo", "halt", "help", "hexdump",
+        "interrupts", "irq", "kill", "ls", "lspci", "md", "mem",
+        "memory", "memmap", "mkdir", "panic", "pci", "priority",
+        "ps", "pwd", "reboot", "rm", "shutdown", "sleep", "spawn",
+        "sysinfo", "tasks", "tick", "type", "uptime", "ver",
+        "version", "write", "yield",
     ];
     COMMANDS.iter().find(|cmd| cmd.starts_with(prefix)).copied()
 }
@@ -356,6 +358,15 @@ fn execute_command(input: &str) {
         "bootinfo" => cmd_bootinfo(),
         "memmap" => cmd_memmap(),
         "panic" => cmd_panic(),
+        "ls" | "dir" => cmd_ls(args),
+        "cat" | "type" => cmd_cat(args),
+        "write" => cmd_write(args),
+        "mkdir" | "md" => cmd_mkdir(args),
+        "rm" | "del" => cmd_rm(args),
+        "cp" | "copy" => cmd_cp(args),
+        "disk" => cmd_disk(),
+        "cd" => cmd_cd(args),
+        "pwd" => cmd_pwd(),
         _ => {
             let mut s = String::new();
             write!(s, "Unknown command: '{}'. Type 'help' for available commands.", cmd).ok();
@@ -401,6 +412,18 @@ fn cmd_help() {
     console::println("  panic            Trigger a kernel panic (for testing BSOD)");
     console::println("  halt             Shut down the system");
     console::println("  reboot           Reboot the system");
+    console::set_color(0xFF, 0xFF, 0x55);
+    console::println("\nFilesystem Commands:");
+    console::set_color(0xFF, 0xFF, 0xFF);
+    console::println("  ls [path]        List directory contents");
+    console::println("  cat <file>       Display file contents");
+    console::println("  write <f> <text> Write text to a file");
+    console::println("  mkdir <dir>      Create a directory");
+    console::println("  rm <file|dir>    Delete a file or empty directory");
+    console::println("  cp <src> <dst>   Copy a file");
+    console::println("  cd <dir>         Change working directory");
+    console::println("  pwd              Print working directory");
+    console::println("  disk             Show disk/filesystem info");
     console::set_color(0xAA, 0xAA, 0xAA);
     console::println("\nTip: Up/Down arrows = history, Tab = completion");
     console::set_color(0xFF, 0xFF, 0xFF);
@@ -1267,4 +1290,382 @@ fn cmd_panic() {
     console::println("Triggering kernel panic for BSOD test...");
     console::set_color(0xFF, 0xFF, 0xFF);
     panic!("User-triggered panic via 'panic' command");
+}
+
+// ============================================================================
+// Filesystem Commands
+// ============================================================================
+
+fn cmd_ls(args: &str) {
+    use crate::storage::vfs;
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    let path = if args.is_empty() { "." } else { args };
+    let entries = match vfs::list_dir(path) {
+        Some(e) => e,
+        None => {
+            let mut s = String::new();
+            write!(s, "ls: cannot access '{}': No such directory", path).ok();
+            console::set_color(0xFF, 0x55, 0x55);
+            console::println(&s);
+            console::set_color(0xFF, 0xFF, 0xFF);
+            return;
+        }
+    };
+
+    if entries.is_empty() {
+        console::set_color(0xAA, 0xAA, 0xAA);
+        console::println("(empty directory)");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    // Print header
+    console::set_color(0xFF, 0xFF, 0x55);
+    console::println("  Type       Size  Name");
+    console::set_color(0xAA, 0xAA, 0xAA);
+    console::println("  ----  ---------  ----");
+    console::set_color(0xFF, 0xFF, 0xFF);
+
+    for entry in &entries {
+        let mut s = String::new();
+        if entry.is_dir {
+            console::set_color(0x55, 0xBB, 0xFF);
+            write!(s, "  <DIR>            {}/", entry.name).ok();
+        } else {
+            console::set_color(0xFF, 0xFF, 0xFF);
+            if entry.size >= 1024 * 1024 {
+                write!(s, "  FILE  {:>5} MiB  {}", entry.size / (1024 * 1024), entry.name).ok();
+            } else if entry.size >= 1024 {
+                write!(s, "  FILE  {:>5} KiB  {}", entry.size / 1024, entry.name).ok();
+            } else {
+                write!(s, "  FILE  {:>5}   B  {}", entry.size, entry.name).ok();
+            }
+        }
+        console::println(&s);
+    }
+    console::set_color(0xFF, 0xFF, 0xFF);
+
+    // Summary
+    let dirs = entries.iter().filter(|e| e.is_dir).count();
+    let files = entries.iter().filter(|e| !e.is_dir).count();
+    let total_size: u64 = entries.iter().map(|e| e.size as u64).sum();
+    let mut s = String::new();
+    console::set_color(0xAA, 0xAA, 0xAA);
+    write!(s, "\n  {} file(s), {} dir(s), {} bytes total", files, dirs, total_size).ok();
+    console::println(&s);
+    console::set_color(0xFF, 0xFF, 0xFF);
+}
+
+fn cmd_cat(args: &str) {
+    use crate::storage::vfs;
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    if args.is_empty() {
+        console::println("Usage: cat <filename>");
+        return;
+    }
+
+    match vfs::read_file(args) {
+        Some(data) => {
+            if data.is_empty() {
+                console::set_color(0xAA, 0xAA, 0xAA);
+                console::println("(empty file)");
+                console::set_color(0xFF, 0xFF, 0xFF);
+                return;
+            }
+
+            // Display as text (with fallback for non-UTF8)
+            match core::str::from_utf8(&data) {
+                Ok(text) => {
+                    console::println(text);
+                }
+                Err(_) => {
+                    // Show as hex dump for binary files
+                    console::set_color(0xAA, 0xAA, 0xAA);
+                    console::println("(binary file, showing hex dump)");
+                    console::set_color(0xFF, 0xFF, 0xFF);
+                    let limit = data.len().min(256);
+                    for (i, chunk) in data[..limit].chunks(16).enumerate() {
+                        let mut s = String::new();
+                        write!(s, "  {:04X}: ", i * 16).ok();
+                        for b in chunk {
+                            write!(s, "{:02X} ", b).ok();
+                        }
+                        console::println(&s);
+                    }
+                    if data.len() > 256 {
+                        let mut s = String::new();
+                        write!(s, "  ... ({} more bytes)", data.len() - 256).ok();
+                        console::println(&s);
+                    }
+                }
+            }
+        }
+        None => {
+            let mut s = String::new();
+            write!(s, "cat: '{}': No such file", args).ok();
+            console::set_color(0xFF, 0x55, 0x55);
+            console::println(&s);
+            console::set_color(0xFF, 0xFF, 0xFF);
+        }
+    }
+}
+
+fn cmd_write(args: &str) {
+    use crate::storage::vfs;
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    // Parse: write <filename> <content>
+    let (filename, content) = match args.find(' ') {
+        Some(pos) => (&args[..pos], args[pos + 1..].trim()),
+        None => {
+            console::println("Usage: write <filename> <text>");
+            return;
+        }
+    };
+
+    if filename.is_empty() || content.is_empty() {
+        console::println("Usage: write <filename> <text>");
+        return;
+    }
+
+    if vfs::write_file(filename, content.as_bytes()) {
+        let mut s = String::new();
+        write!(s, "Wrote {} bytes to '{}'", content.len(), filename).ok();
+        console::set_color(0x55, 0xFF, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+    } else {
+        let mut s = String::new();
+        write!(s, "write: failed to write to '{}'", filename).ok();
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+    }
+}
+
+fn cmd_mkdir(args: &str) {
+    use crate::storage::vfs;
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    if args.is_empty() {
+        console::println("Usage: mkdir <dirname>");
+        return;
+    }
+
+    if vfs::mkdir(args) {
+        let mut s = String::new();
+        write!(s, "Created directory '{}'", args).ok();
+        console::set_color(0x55, 0xFF, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+    } else {
+        let mut s = String::new();
+        write!(s, "mkdir: failed to create '{}'", args).ok();
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+    }
+}
+
+fn cmd_rm(args: &str) {
+    use crate::storage::vfs;
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    if args.is_empty() {
+        console::println("Usage: rm <filename|dirname>");
+        return;
+    }
+
+    if vfs::delete(args) {
+        let mut s = String::new();
+        write!(s, "Deleted '{}'", args).ok();
+        console::set_color(0x55, 0xFF, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+    } else {
+        let mut s = String::new();
+        write!(s, "rm: failed to delete '{}' (does it exist? is the directory empty?)", args).ok();
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+    }
+}
+
+fn cmd_cp(args: &str) {
+    use crate::storage::vfs;
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    let (src, dst) = match args.find(' ') {
+        Some(pos) => (&args[..pos], args[pos + 1..].trim()),
+        None => {
+            console::println("Usage: cp <source> <destination>");
+            return;
+        }
+    };
+
+    if src.is_empty() || dst.is_empty() {
+        console::println("Usage: cp <source> <destination>");
+        return;
+    }
+
+    if vfs::copy_file(src, dst) {
+        let mut s = String::new();
+        write!(s, "Copied '{}' -> '{}'", src, dst).ok();
+        console::set_color(0x55, 0xFF, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+    } else {
+        let mut s = String::new();
+        write!(s, "cp: failed to copy '{}' to '{}'", src, dst).ok();
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+    }
+}
+
+fn cmd_cd(args: &str) {
+    use crate::storage::vfs;
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    if args.is_empty() {
+        // Print current directory
+        cmd_pwd();
+        return;
+    }
+
+    if !vfs::cd(args) {
+        let mut s = String::new();
+        write!(s, "cd: '{}': No such directory", args).ok();
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+    }
+}
+
+fn cmd_pwd() {
+    use crate::storage::vfs;
+
+    if !vfs::is_ready() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("No filesystem mounted.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    console::println(&vfs::cwd());
+}
+
+fn cmd_disk() {
+    use crate::storage::{vfs, fat32};
+    use crate::hal::virtio_blk;
+
+    console::set_color(0xFF, 0xFF, 0x55);
+    console::println("Disk Information:");
+    console::set_color(0xFF, 0xFF, 0xFF);
+
+    let mut s = String::new();
+
+    if !virtio_blk::is_available() {
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println("  No block device available.");
+        console::set_color(0xFF, 0xFF, 0xFF);
+        return;
+    }
+
+    let sectors = virtio_blk::capacity_sectors();
+    write!(s, "  Block device:   virtio-blk").ok();
+    console::println(&s);
+
+    s.clear();
+    write!(s, "  Capacity:       {} sectors ({} MiB)", sectors, sectors * 512 / (1024 * 1024)).ok();
+    console::println(&s);
+
+    s.clear();
+    write!(s, "  Sector size:    512 bytes").ok();
+    console::println(&s);
+
+    if fat32::is_mounted() {
+        let label = fat32::volume_label();
+        s.clear();
+        write!(s, "  Filesystem:     FAT32").ok();
+        console::println(&s);
+
+        s.clear();
+        write!(s, "  Volume label:   {}", label).ok();
+        console::println(&s);
+
+        let (total, free, cluster_size) = fat32::stats();
+        s.clear();
+        write!(s, "  Cluster size:   {} bytes", cluster_size).ok();
+        console::println(&s);
+
+        let used = total - free;
+        s.clear();
+        write!(s, "  Clusters:       {} total, {} used, {} free", total, used, free).ok();
+        console::println(&s);
+
+        let free_bytes = free as u64 * cluster_size as u64;
+        let used_bytes = used as u64 * cluster_size as u64;
+        s.clear();
+        write!(s, "  Space:          {} KiB used, {} KiB free",
+            used_bytes / 1024, free_bytes / 1024).ok();
+        console::println(&s);
+
+        if vfs::is_ready() {
+            s.clear();
+            write!(s, "  Mount point:    /").ok();
+            console::println(&s);
+            s.clear();
+            write!(s, "  Current dir:    {}", vfs::cwd()).ok();
+            console::println(&s);
+        }
+    } else {
+        console::set_color(0xAA, 0xAA, 0xAA);
+        console::println("  Filesystem:     (not mounted)");
+        console::set_color(0xFF, 0xFF, 0xFF);
+    }
 }

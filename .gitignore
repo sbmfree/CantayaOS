@@ -19,3 +19,4 @@ esp/
 
 # QEMU state
 *.fd
+serial.log

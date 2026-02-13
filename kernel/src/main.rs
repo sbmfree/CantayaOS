@@ -61,6 +61,7 @@ pub mod executive; // Executive services — depends on everything below
 pub mod graphics;  // Framebuffer graphics — depends on memory
 pub mod desktop;   // Graphical desktop environment — depends on graphics
 pub mod logging;   // Kernel logging infrastructure
+pub mod storage;   // Storage subsystem — filesystem, block devices
 pub mod shell;     // Interactive kernel shell
 
 use cantaya_shared::boot_info::BootInfo;
@@ -131,6 +132,9 @@ pub extern "C" fn kernel_main(boot_info: &'static BootInfo) -> ! {
     hal::interrupts::enable();
     hal::pit::init(1000); // 1000 Hz = 1 ms per tick
     log::info!("Interrupts enabled, PIT at 1000 Hz");
+
+    // Phase 4.5: Storage — initialize block devices and filesystem
+    storage::init();
 
     // Phase 5: Initialize the framebuffer console for visual output
     graphics::init(&boot_info.framebuffer);
