@@ -339,6 +339,41 @@ impl Heap {
 
         self.allocated_bytes = self.allocated_bytes.saturating_sub(total_size);
     }
+
+    /// Get detailed heap statistics
+    fn stats(&self) -> HeapStats {
+        let mut free_blocks = 0usize;
+        let mut largest_free = 0usize;
+        let mut total_free = 0usize;
+        let mut current = self.free_list;
+
+        while let Some(block_ptr) = current {
+            let block = unsafe { &*block_ptr };
+            free_blocks += 1;
+            total_free += block.size;
+            if block.size > largest_free {
+                largest_free = block.size;
+            }
+            current = block.next;
+        }
+
+        HeapStats {
+            total_size: self.total_size,
+            allocated_bytes: self.allocated_bytes,
+            free_bytes: total_free,
+            free_blocks,
+            largest_free_block: largest_free,
+        }
+    }
+}
+
+/// Heap statistics snapshot
+pub struct HeapStats {
+    pub total_size: usize,
+    pub allocated_bytes: usize,
+    pub free_bytes: usize,
+    pub free_blocks: usize,
+    pub largest_free_block: usize,
 }
 
 /// Initialize the kernel heap.
@@ -368,4 +403,9 @@ pub fn init() {
         HEAP_SIZE / 1024,
         heap_addr
     );
+}
+
+/// Get current heap statistics
+pub fn heap_stats() -> HeapStats {
+    ALLOCATOR.0.lock().stats()
 }

@@ -13,10 +13,10 @@ BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x
   0x80B000 - 0x80C000  (4 KiB) ACPI NVS
   0x80C000 - 0x814000  (32 KiB) Usable
   0x814000 - 0x900000  (944 KiB) ACPI NVS
-  0x900000 - 0xD41E000  (207992 KiB) Usable
-  0xD41E000 - 0xD5EFF50  (1863 KiB) Kernel
-  0xD5EFF50 - 0xD5F0000  (0 KiB) Bootloader
-  0xD5F0000 - 0xDE40000  (8512 KiB) Usable
+  0x900000 - 0xD3F1000  (207812 KiB) Usable
+  0xD3F1000 - 0xD5D2F50  (1927 KiB) Kernel
+  0xD5D2F50 - 0xD5D3000  (0 KiB) Bootloader
+  0xD5D3000 - 0xDE40000  (8628 KiB) Usable
   0xDE40000 - 0xDE88000  (288 KiB) Bootloader
   0xDE88000 - 0xDEBD000  (212 KiB) Usable
   0xDEBD000 - 0xDEC3000  (24 KiB) Bootloader
@@ -36,8 +36,8 @@ BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x
   0xFFC00000 - 0x100000000  (4096 KiB) Reserved
   0xFD00000000 - 0x10000000000  (12582912 KiB) Reserved
 [BOOT] =====================================
-[BOOT] Total usable: 253580 KiB
-[BOOT] Boot time: ~3829 ms
+[BOOT] Total usable: 253516 KiB
+[BOOT] Boot time: ~3847 ms
 [BOOT] Regions: 29
 [BOOT] Page tables: 9 pages (36 KiB)
 [BOOT] UEFI runtime regions: 4
@@ -46,7 +46,7 @@ BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x
 [INFO ] cantaya_kernel::hal::cpu: SSE/SSE2 enabled (CR0.EM cleared, CR4.OSFXSR set)
 [INFO ] cantaya_kernel: SSE/FPU enabled
 [INFO ] cantaya_kernel: Boot info valid, framebuffer 1920x1080
-[INFO ] cantaya_kernel::memory: Frame allocator: 63235 free frames (247 MiB)
+[INFO ] cantaya_kernel::memory: Frame allocator: 63219 free frames (246 MiB)
 [INFO ] cantaya_kernel::memory::heap: Heap initialized: 1024 KiB at 0x100000
 [INFO ] cantaya_kernel::memory: Kernel heap initialized
 [INFO ] cantaya_kernel: Memory management initialized
@@ -62,7 +62,7 @@ BdsDxe: starting Boot0002 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x
 [INFO ] cantaya_kernel::hal::pci: PCI: 7 device(s) found
 [INFO ] cantaya_kernel: PCI bus enumerated
 [INFO ] cantaya_kernel: Scheduler initialized
-[INFO ] cantaya_kernel::executive::syscall: SYSCALL MSRs programmed: STAR=0x10000800000000, LSTAR=0xFFFFFFFF800229CC
+[INFO ] cantaya_kernel::executive::syscall: SYSCALL MSRs programmed: STAR=0x10000800000000, LSTAR=0xFFFFFFFF80022C7C
 [INFO ] cantaya_kernel: SYSCALL MSRs programmed
 [INFO ] cantaya_kernel::hal::mouse: Initializing PS/2 mouse...
 [INFO ] cantaya_kernel::hal::mouse: PS/2 mouse initialized (IntelliMouse with scroll wheel)
