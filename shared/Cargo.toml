@@ -1,0 +1,16 @@
+# Shared types between the CantayaOS bootloader and kernel.
+#
+# This crate defines the "boot protocol" — the contract between the UEFI bootloader
+# and the kernel. It specifies the BootInfo structure that the bootloader populates
+# and passes to the kernel at handoff.
+#
+# This is a #![no_std] crate because it must be usable by both the UEFI bootloader
+# (which has its own runtime) and the bare-metal kernel (which has nothing).
+
+[package]
+name = "cantaya_shared"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]

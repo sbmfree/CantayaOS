@@ -1,4 +1,15 @@
+# CantayaOS Rust Toolchain Configuration
+#
+# We use nightly Rust because bare-metal OS development requires several unstable features:
+#   - Custom target specifications (no built-in target for our kernel)
+#   - #![no_std] + #![no_main] with custom entry points
+#   - Inline assembly for privileged CPU operations
+#   - Naked functions for interrupt handlers
+#   - Allocator API for heap management
+#
+# The nightly channel is pinned to ensure reproducible builds across machines.
+
 [toolchain]
 channel = "nightly"
-components = ["rust-src", "llvm-tools-preview"]
-targets = ["aarch64-unknown-none"]
+components = ["rust-src", "rustfmt", "clippy", "llvm-tools-preview"]
+targets = ["x86_64-unknown-uefi"]

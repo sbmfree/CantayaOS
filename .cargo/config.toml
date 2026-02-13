@@ -1,14 +1,32 @@
+# Cargo build configuration for CantayaOS
+#
+# The kernel is compiled for a custom bare-metal x86_64 target (no OS, no standard library).
+# The bootloader uses the standard x86_64-unknown-uefi target provided by Rust.
+#
+# We configure the kernel target here so `cargo build -p cantaya_kernel` automatically
+# uses our custom target JSON without requiring --target on every invocation.
+
 [build]
-# Default target — custom AArch64 bare metal
-target = "kernel/aarch64-cantaya.json"
+# Default target for the kernel crate - overridden per-crate via build scripts
+# The bootloader specifies its own target via its build command
 
 [unstable]
+# Required for using .json custom target specifications
+json-target-spec = true
+# Build standard library from source for bare-metal targets
 build-std = ["core", "alloc", "compiler_builtins"]
 build-std-features = ["compiler-builtins-mem"]
-json-target-spec = true
 
-[target.aarch64-cantaya]
-rustflags = ["-C", "link-arg=-T", "-C", "link-arg=kernel/linker.ld"]
+[target.x86_64-unknown-none]
+# Linker settings for the kernel target
+# Custom linker script places the kernel at the higher-half virtual address
+# Static relocation model produces ET_EXEC (not PIE), avoiding dynamic relocations
+rustflags = ["-C", "link-arg=--script=kernel/linker.ld", "-C", "relocation-model=static"]
 
-[target.x86_64-cantaya]
-rustflags = ["-C", "link-arg=-T", "-C", "link-arg=kernel/linker-x86_64.ld"]
+# Custom runner for testing (future use with QEMU)
+# runner = "scripts/run-qemu.ps1"
+
+[alias]
+# Convenience aliases for building specific components
+build-bootloader = "build -p cantaya_bootloader --target x86_64-unknown-uefi"
+build-kernel = "build -p cantaya_kernel --target x86_64-unknown-none"

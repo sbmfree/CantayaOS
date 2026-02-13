@@ -1,154 +1,201 @@
 # CantayaOS
 
-A hybrid kernel operating system written in Rust supporting both ARM64 (AArch64) and x86_64 architectures.
-
-## Overview
-
-CantayaOS is a modern operating system featuring a Windows NT-like hybrid kernel design, combining the modularity of microkernels with the performance of monolithic kernels.
+A modern 64-bit Windows-inspired operating system written in Rust.
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      User Mode                               │
-│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐            │
-│  │   Apps      │ │   Services  │ │   Drivers   │            │
-│  └─────────────┘ └─────────────┘ └─────────────┘            │
-├─────────────────────────────────────────────────────────────┤
-│                    System Call Interface                     │
-├─────────────────────────────────────────────────────────────┤
-│                      Kernel Mode                             │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │                    Executive                         │    │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐   │    │
-│  │  │ Process │ │ Memory  │ │   I/O   │ │   IPC   │   │    │
-│  │  │ Manager │ │ Manager │ │ Manager │ │ Manager │   │    │
-│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘   │    │
-│  └─────────────────────────────────────────────────────┘    │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │              Hardware Abstraction Layer (HAL)        │    │
-│  └─────────────────────────────────────────────────────┘    │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │                    Microkernel                       │    │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐   │    │
-│  │  │ Sched-  │ │ Except- │ │   MMU   │ │  Timer  │   │    │
-│  │  │  uler   │ │  ions   │ │         │ │         │   │    │
-│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘   │    │
-│  └─────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                    ┌───────┴───────┐
-                    │   Hardware    │
-                    │ ARM64/x86_64  │
-                    └───────────────┘
-```
+CantayaOS is a hybrid kernel inspired by Windows NT, built entirely in Rust
+for the x86_64 architecture with UEFI boot.
 
-## Features
-
-- **Hybrid Kernel**: Combines microkernel security with monolithic performance
-- **Multi-Architecture**: Supports both ARM64 (AArch64) and x86_64 architectures
-- **Windows NT-like Design**: Familiar concepts (EPROCESS, ETHREAD, handles, etc.)
-- **Modern Rust**: Memory-safe kernel with zero-cost abstractions
-- **Preemptive Multitasking**: Priority-based scheduler with 32 priority levels
-- **Virtual Memory**: 4-level page tables with demand paging support
-- **IPC Mechanisms**: Events, mutexes, semaphores, pipes
+```
+┌─────────────────────────────────────────────────────┐
+│                 User Mode (Ring 3)                   │
+│       [Processes]  [GUI]  [Shell]  (future)          │
+├──────────────────────────────────────────────────────┤
+│              System Call Interface                    │
+├──────────────────────────────────────────────────────┤
+│  Executive Layer                                     │
+│    ├── Process Manager    (process/thread lifecycle)  │
+│    ├── Object Manager     (handle-based resources)   │
+│    └── Syscall Dispatch   (user↔kernel transition)   │
+├──────────────────────────────────────────────────────┤
+│  Kernel Core                                         │
+│    ├── Scheduler          (preemptive round-robin)   │
+│    └── Sync Primitives    (spinlocks, etc.)          │
+├──────────────────────────────────────────────────────┤
+│  Memory Management                                   │
+│    ├── Frame Allocator    (bitmap-based, 4 KiB)      │
+│    └── Heap Allocator     (linked-list free-list)    │
+├──────────────────────────────────────────────────────┤
+│  Hardware Abstraction Layer (HAL)                     │
+│    ├── GDT / TSS          (CPU segmentation)         │
+│    ├── IDT                (interrupt dispatch)       │
+│    ├── PIC                (interrupt controller)     │
+│    ├── Serial             (COM1 debug output)        │
+│    └── Port I/O           (hardware access)          │
+├──────────────────────────────────────────────────────┤
+│  Graphics                                            │
+│    ├── Framebuffer        (UEFI GOP pixel access)    │
+│    ├── Font               (8x16 bitmap font)        │
+│    └── Console            (text output with scroll)  │
+├──────────────────────────────────────────────────────┤
+│  UEFI Bootloader                                     │
+│    ├── GOP init           (framebuffer setup)        │
+│    ├── ELF loader         (kernel loading)           │
+│    └── Paging setup       (higher-half mapping)      │
+└─────────────────────────────────────────────────────┘
+```
 
 ## Project Structure
 
 ```
 CantayaOS/
-├── kernel/
-│   ├── src/
-│   │   ├── arch/
-│   │   │   ├── aarch64/     # ARM64 architecture code
-│   │   │   └── x86_64/      # x86_64 architecture code
-│   │   ├── hal/             # Hardware Abstraction Layer
-│   │   ├── mm/              # Memory management
-│   │   ├── process/         # Process & thread management
-│   │   ├── ipc/             # Inter-process communication
-│   │   └── drivers/         # Driver framework
-│   ├── linker.ld            # ARM64 linker script
-│   ├── linker-x86_64.ld     # x86_64 linker script
-│   ├── aarch64-cantaya.json # ARM64 target specification
-│   └── x86_64-cantaya.json  # x86_64 target specification
-├── bootloader/              # UEFI bootloader
-├── userspace/               # User applications (future)
-└── tools/                   # Build tools
+├── Cargo.toml              # Workspace root
+├── rust-toolchain.toml     # Nightly Rust + required components
+├── x86_64-cantaya.json     # Custom bare-metal target for the kernel
+│
+├── shared/                 # Boot protocol (shared between bootloader & kernel)
+│   └── src/
+│       ├── boot_info.rs    # BootInfo structure passed to kernel
+│       └── memory.rs       # Memory region types
+│
+├── bootloader/             # UEFI bootloader application
+│   └── src/
+│       ├── main.rs         # UEFI entry point & boot sequence
+│       ├── framebuffer.rs  # GOP initialization
+│       ├── loader.rs       # ELF parser & kernel loader
+│       └── paging.rs       # 4-level page table setup
+│
+├── kernel/                 # The CantayaOS kernel
+│   ├── linker.ld           # Linker script (higher-half at 0xFFFFFFFF80000000)
+│   └── src/
+│       ├── main.rs         # Kernel entry & initialization sequence
+│       ├── logging.rs      # Serial-based kernel logging
+│       │
+│       ├── hal/            # Hardware Abstraction Layer
+│       │   ├── cpu.rs      # Entry point (_start), CR register access
+│       │   ├── gdt.rs      # Global Descriptor Table + TSS
+│       │   ├── idt.rs      # Interrupt Descriptor Table + handlers
+│       │   ├── interrupts.rs # PIC setup, interrupt enable/disable
+│       │   ├── port.rs     # x86 port I/O (in/out instructions)
+│       │   └── serial.rs   # UART 16550 serial port driver
+│       │
+│       ├── memory/         # Memory management
+│       │   ├── frame_allocator.rs  # Bitmap-based physical frame allocator
+│       │   └── heap.rs     # Linked-list kernel heap allocator
+│       │
+│       ├── core_kernel/    # Kernel core services
+│       │   ├── scheduler.rs # Round-robin preemptive scheduler
+│       │   └── sync.rs     # Synchronization primitives
+│       │
+│       ├── executive/      # Executive services (highest kernel layer)
+│       │   ├── process.rs  # Process & thread management (stub)
+│       │   ├── object.rs   # Object manager / handle system (stub)
+│       │   └── syscall.rs  # System call interface (stub)
+│       │
+│       └── graphics/       # Visual output
+│           ├── framebuffer.rs # Pixel-level framebuffer access
+│           ├── font.rs     # Built-in 8x16 bitmap font
+│           └── console.rs  # Text console with scrolling
+│
+└── scripts/
+    ├── build.ps1           # Build all components + create ESP
+    └── run-qemu.ps1        # Launch in QEMU with UEFI
 ```
+
+## Prerequisites
+
+- **Rust nightly** (managed by `rust-toolchain.toml` — auto-installed)
+- **QEMU** with x86_64 support: `winget install QEMU.QEMU`
+- **OVMF** UEFI firmware (usually bundled with QEMU)
 
 ## Building
 
-### Prerequisites
+```powershell
+# Build everything (bootloader + kernel + ESP image)
+.\scripts\build.ps1
 
-- Rust nightly toolchain
-- `aarch64-unknown-none` and/or `x86_64-unknown-none` target
-- LLVM tools (for objcopy)
-- QEMU (for testing)
-
-### Build Commands
-
-```bash
-# Install Rust nightly
-rustup default nightly
-rustup target add aarch64-unknown-none x86_64-unknown-none
-rustup component add rust-src llvm-tools-preview
-
-# Build kernel for ARM64 (default)
-./build.sh
-
-# Build kernel for x86_64
-ARCH=x86_64 ./build.sh
-
-# Build debug version
-./build.sh debug
-ARCH=x86_64 ./build.sh debug
-
-# Using Makefile
-make release           # Build ARM64 release
-make release-x86_64    # Build x86_64 release
+# Build in release mode
+.\scripts\build.ps1 -Release
 ```
 
 ## Running
 
-```bash
-# Run ARM64 in QEMU
-./run.sh
+```powershell
+# Run in QEMU (builds first if needed)
+.\scripts\run-qemu.ps1
 
-# Run x86_64 in QEMU
-ARCH=x86_64 ./run.sh
+# Run without rebuilding
+.\scripts\run-qemu.ps1 -NoBuild
 
-# Using Makefile
-make run               # Run ARM64
-make run-x86_64        # Run x86_64
-
-# Or manually:
-# ARM64:
-qemu-system-aarch64 -M virt -cpu cortex-a72 -m 128M -nographic -kernel cantaya.bin
-
-# x86_64:
-qemu-system-x86_64 -cpu qemu64 -m 128M -nographic -kernel cantaya.bin
+# Run with GDB debug server
+.\scripts\run-qemu.ps1 -Debug
 ```
 
-## System Calls
+## Boot Sequence
 
-CantayaOS uses Windows NT-style system calls:
+1. **UEFI Firmware** discovers `BOOTX64.EFI` on the ESP
+2. **Bootloader** initializes GOP (display), loads `kernel.elf` from ESP
+3. **Bootloader** parses ELF, copies segments to physical memory
+4. **Bootloader** creates 4-level page tables (identity + higher-half mapping)
+5. **Bootloader** exits UEFI boot services, captures memory map
+6. **Bootloader** switches to new page tables, jumps to kernel `_start`
+7. **Kernel HAL** initializes GDT, IDT, serial port
+8. **Kernel Memory** initializes frame allocator (from UEFI memory map), then heap
+9. **Kernel** enables interrupts (PIC + timer + keyboard)
+10. **Kernel Graphics** initializes framebuffer console, displays boot messages
+11. **Kernel** enters idle loop (HLT until next interrupt)
 
-| Syscall | Number | Description |
-|---------|--------|-------------|
-| NtCreateProcess | 0x0001 | Create a new process |
-| NtCreateThread | 0x0002 | Create a new thread |
-| NtTerminateProcess | 0x0003 | Terminate a process |
-| NtAllocateVirtualMemory | 0x0010 | Allocate memory |
-| NtCreateFile | 0x0020 | Create/open a file |
-| NtReadFile | 0x0021 | Read from file |
-| NtWriteFile | 0x0022 | Write to file |
-| NtCreateEvent | 0x0030 | Create event object |
-| NtWaitForSingleObject | 0x0040 | Wait for object |
+## Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Rust `no_std` | Memory safety without runtime overhead; no OS dependencies |
+| UEFI only | Modern standard, no legacy BIOS complexity |
+| Higher-half kernel | Shared kernel mapping across all processes, efficient syscalls |
+| 2 MiB huge pages (boot) | Simple initial mapping; kernel switches to 4 KiB later |
+| Bitmap frame allocator | Fixed overhead, cache-friendly, simple to debug |
+| Linked-list heap | Good enough for early development; slab allocator planned |
+| Round-robin scheduler | Simplest correct preemptive scheduler; priority queues planned |
+| Serial debug output | Works even when framebuffer isn't initialized; QEMU captures it |
+
+## Roadmap
+
+- [ ] **Phase 1** — Boot & display (current)
+  - [x] UEFI bootloader with GOP
+  - [x] Kernel loading and higher-half mapping
+  - [x] GDT, IDT, exception handlers
+  - [x] Physical frame allocator
+  - [x] Kernel heap
+  - [x] Framebuffer console
+  - [x] Preemptive scheduler (basic)
+  - [ ] PS/2 keyboard input processing
+  - [ ] Context switch implementation
+
+- [ ] **Phase 2** — Processes & syscalls
+  - [ ] Virtual memory manager (per-process page tables)
+  - [ ] SYSCALL/SYSRET interface
+  - [ ] User-mode process loading (ELF)
+  - [ ] Basic security model (Ring 0/3 separation)
+
+- [ ] **Phase 3** — Filesystem & I/O
+  - [ ] VFS abstraction layer
+  - [ ] FAT32 filesystem driver
+  - [ ] Block device abstraction
+  - [ ] AHCI/NVMe disk driver
+
+- [ ] **Phase 4** — GUI
+  - [ ] Window manager (compositing)
+  - [ ] Desktop + taskbar + start menu concept
+  - [ ] Mouse driver (PS/2 or USB HID)
+  - [ ] Basic widget toolkit
+
+- [ ] **Phase 5** — Advanced
+  - [ ] SMP (multi-core) support
+  - [ ] APIC (replacing legacy PIC)
+  - [ ] Network stack (TCP/IP)
+  - [ ] Windows compatibility layer (long-term vision)
 
 ## License
 
-MIT License
-
-## Contributing
-
-Contributions welcome! Please read the contributing guidelines first.
+MIT

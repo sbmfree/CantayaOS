@@ -1,10 +1,21 @@
 # Build artifacts
 /target/
-cantaya.bin
-userspace/target/
 
-# Editor
-.vscode/
+# IDE files
+.idea/
+.vscode/settings.json
 *.swp
 *.swo
-*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Generated disk images
+*.img
+*.iso
+*.efi
+esp/
+
+# QEMU state
+*.fd

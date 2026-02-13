@@ -1,289 +1,128 @@
-//! Interrupt handling (GICv3)
+// Interrupt Management
+//
+// This module provides high-level control over hardware interrupts,
+// including PIC (Programmable Interrupt Controller) initialization.
+//
+// Modern systems use the APIC (Advanced PIC), but we start with the legacy
+// 8259 PIC for simplicity. The PIC is two cascaded chips (master + slave)
+// that multiplex 15 hardware interrupt lines into CPU interrupt vectors.
+//
+// PIC Remapping:
+//   By default, the PIC maps IRQ 0-7 to vectors 8-15, which conflicts with
+//   CPU exceptions. We remap them to vectors 32-47 to avoid conflicts.
 
-use crate::sync::IrqMutex;
+use super::port::{inb, outb};
 
-/// GICv3 base addresses (QEMU virt)
-const GICD_BASE: usize = 0x0800_0000;  // Distributor
-const GICR_BASE: usize = 0x080A_0000;  // Redistributor RD base
-// GICR layout per CPU: RD_base (64KB) + SGI_base (64KB)
-#[allow(dead_code)]
-const GICR_SGI_SIZE: usize = 0x10000;  // 64KB
+/// Master PIC I/O ports
+const PIC1_COMMAND: u16 = 0x20;
+const PIC1_DATA: u16 = 0x21;
 
-/// Redistributor RD (base) frame registers
-const GICR_WAKER: usize = 0x0014;
+/// Slave PIC I/O ports  
+const PIC2_COMMAND: u16 = 0xA0;
+const PIC2_DATA: u16 = 0xA1;
 
-/// Redistributor SGI frame registers (offset from RD base)
-const GICR_SGI_OFFSET: usize = 0x10000; // SGI frame is at +64KB
-const GICR_ISENABLER0: usize = 0x0100;  // Enable SGIs/PPIs
-const GICR_IPRIORITYR: usize = 0x0400;  // Priority for SGIs/PPIs
+/// ICW1: Initialization Command Word 1 — start initialization sequence
+const ICW1_INIT: u8 = 0x10;
+const ICW1_ICW4: u8 = 0x01; // ICW4 needed
 
-/// Distributor registers
-const GICD_CTLR: usize = 0x0000;
-#[allow(dead_code)]
-const GICD_TYPER: usize = 0x0004;
-const GICD_IGROUPR: usize = 0x0080;
-const GICD_ISENABLER: usize = 0x0100;
-const GICD_ICENABLER: usize = 0x0180;
-#[allow(dead_code)]
-const GICD_IPRIORITYR: usize = 0x0400;
-#[allow(dead_code)]
-const GICD_ITARGETSR: usize = 0x0800;
-#[allow(dead_code)]
-const GICD_ICFGR: usize = 0x0C00;
+/// ICW4: 8086 mode
+const ICW4_8086: u8 = 0x01;
 
-/// CPU interface (system registers)
+/// Vector offsets for remapped PIC interrupts
+const PIC1_OFFSET: u8 = 32; // IRQ 0-7 → vectors 32-39
+const PIC2_OFFSET: u8 = 40; // IRQ 8-15 → vectors 40-47
 
-static GIC: IrqMutex<Gic> = IrqMutex::new(Gic::new());
+/// Initialize the 8259 PIC with remapped vectors.
+///
+/// This sends the initialization command words (ICW1-ICW4) to both PICs.
+/// After this, IRQ0 = vector 32, IRQ1 = vector 33, etc.
+fn init_pic() {
+    unsafe {
+        // Save current masks
+        let _mask1 = inb(PIC1_DATA);
+        let _mask2 = inb(PIC2_DATA);
 
-pub struct Gic {
-    gicd_base: usize,
-    #[allow(dead_code)]
-    gicr_base: usize,
+        // ICW1: Start initialization (cascade mode, ICW4 needed)
+        outb(PIC1_COMMAND, ICW1_INIT | ICW1_ICW4);
+        io_wait();
+        outb(PIC2_COMMAND, ICW1_INIT | ICW1_ICW4);
+        io_wait();
+
+        // ICW2: Vector offset (remap IRQs away from CPU exceptions)
+        outb(PIC1_DATA, PIC1_OFFSET);
+        io_wait();
+        outb(PIC2_DATA, PIC2_OFFSET);
+        io_wait();
+
+        // ICW3: Cascading — master has slave on IRQ2, slave has cascade identity 2
+        outb(PIC1_DATA, 4); // Bit 2 = IRQ2 has slave
+        io_wait();
+        outb(PIC2_DATA, 2); // Cascade identity = 2
+        io_wait();
+
+        // ICW4: 8086 mode
+        outb(PIC1_DATA, ICW4_8086);
+        io_wait();
+        outb(PIC2_DATA, ICW4_8086);
+        io_wait();
+
+        // Mask all interrupts except IRQ0 (timer), IRQ1 (keyboard), and IRQ2 (cascade)
+        // Bit = 1 means masked (disabled)
+        // IRQ2 must be unmasked on master for slave PIC interrupts to reach the CPU
+        outb(PIC1_DATA, 0b1111_1000); // Enable IRQ0 (timer), IRQ1 (keyboard), IRQ2 (cascade)
+        outb(PIC2_DATA, 0b1110_1111); // Enable IRQ12 (mouse) = slave IRQ4
+    }
 }
 
-impl Gic {
-    const fn new() -> Self {
-        Gic {
-            gicd_base: GICD_BASE,
-            gicr_base: GICR_BASE,
+/// Small I/O delay — some old hardware needs a brief pause between PIC commands
+#[inline]
+fn io_wait() {
+    unsafe {
+        // Writing to port 0x80 (unused POST diagnostic port) creates a ~1μs delay
+        outb(0x80, 0);
+    }
+}
+
+/// Whether the PIC has been initialized (avoid re-init on every `enable()` call)
+static mut PIC_INITIALIZED: bool = false;
+
+/// Enable hardware interrupts (set IF flag in RFLAGS)
+pub fn enable() {
+    unsafe {
+        if !PIC_INITIALIZED {
+            init_pic();
+            PIC_INITIALIZED = true;
         }
-    }
-    
-    unsafe fn write_gicd(&self, offset: usize, val: u32) {
-        core::ptr::write_volatile((self.gicd_base + offset) as *mut u32, val);
-    }
-    
-    #[allow(dead_code)]
-    unsafe fn read_gicd(&self, offset: usize) -> u32 {
-        core::ptr::read_volatile((self.gicd_base + offset) as *const u32)
+        core::arch::asm!("sti");
     }
 }
 
-/// Initialize interrupt controller
-#[cfg(target_arch = "aarch64")]
-pub fn init() {
-    let gic = GIC.lock();
-    
+/// Disable hardware interrupts (clear IF flag)
+pub fn disable() {
     unsafe {
-        // Wake up the Redistributor (required for GICv3)
-        // Clear ProcessorSleep bit and wait for ChildrenAsleep to clear
-        let waker_addr = GICR_BASE + GICR_WAKER;
-        let waker_val = core::ptr::read_volatile(waker_addr as *const u32);
-        core::ptr::write_volatile(waker_addr as *mut u32, waker_val & !2); // Clear ProcessorSleep
-        
-        // Wait for ChildrenAsleep to clear (with timeout)
-        let mut timeout = 10000;
-        loop {
-            let waker = core::ptr::read_volatile(waker_addr as *const u32);
-            if (waker & 4) == 0 { 
-                break; 
-            }
-            timeout -= 1;
-            if timeout == 0 {
-                break;
-            }
-        }
-        
-        // Enable distributor
-        // For GICv3, set ARE_NS (bit 4) and EnableGrp1NS (bit 1)
-        gic.write_gicd(GICD_CTLR, 0x12); // ARE_NS + EnableGrp1NS
-        
-        // Set priority mask (allow all priorities) - set to minimum filtering (0xFF = allow all)
-        core::arch::asm!("msr ICC_PMR_EL1, {}", in(reg) 0xFFu64);
-        
-        // Configure ICC_CTLR_EL1 for proper operation
-        // Enable EOI mode 0 (write to ICC_EOIR1_EL1 drops priority and deactivates)
-        core::arch::asm!("msr ICC_CTLR_EL1, {}", in(reg) 0u64);
-        
-        // Enable System Register Interface (should already be enabled by firmware)
-        // ICC_SRE_EL1.SRE bit
-        let sre: u64;
-        core::arch::asm!("mrs {}, ICC_SRE_EL1", out(reg) sre);
-        if (sre & 1) == 0 {
-            core::arch::asm!("msr ICC_SRE_EL1, {}", in(reg) sre | 1);
-        }
-        
-        // Enable group 1 NS interrupts (this is the key enable!)
-        core::arch::asm!("msr ICC_IGRPEN1_EL1, {}", in(reg) 1u64);
-        
-        // Configure UART0 IRQ (SPI #1 = IRQ 33)
-        // Set priority
-        let pri_reg = GICD_IPRIORITYR + (33 / 4) * 4;
-        let pri_shift = (33 % 4) * 8;
-        let mut pri_val = gic.read_gicd(pri_reg);
-        pri_val &= !(0xFF << pri_shift);
-        pri_val |= 0xA0 << pri_shift; // Priority 0xA0
-        gic.write_gicd(pri_reg, pri_val);
-        
-        // Set target to CPU 0 (for GICv2 compat)
-        let tgt_reg = GICD_ITARGETSR + (33 / 4) * 4;
-        let tgt_shift = (33 % 4) * 8;
-        let mut tgt_val = gic.read_gicd(tgt_reg);
-        tgt_val |= 0x01 << tgt_shift;
-        gic.write_gicd(tgt_reg, tgt_val);
-
-        // Set UART SPI to Group 1 NS (GICD_IGROUPR)
-        let grp_reg = GICD_IGROUPR + (33 / 32) * 4;
-        let grp_bit = 33 % 32;
-        let grp_val = gic.read_gicd(grp_reg);
-        gic.write_gicd(grp_reg, grp_val | (1 << grp_bit));
-    }
-    
-    // Enable UART0 IRQ
-    drop(gic);
-    enable_irq(33);
-}
-
-#[cfg(target_arch = "x86_64")]
-pub fn init() {
-    // x86_64 interrupt controller initialization
-    // TODO: Implement PIC/APIC setup
-    crate::kprintln!("[INT] x86_64 interrupt controller init (stub)");
-}
-
-/// Configure and enable an SPI interrupt with the given priority.
-/// Handles Group1 NS assignment, priority register, and enable.
-#[cfg(target_arch = "aarch64")]
-#[cfg(target_arch = "aarch64")]
-pub fn configure_spi(intid: u32, priority: u8) {
-    let gic = GIC.lock();
-    unsafe {
-        // Set this SPI to Group 1 NS so it is delivered as IRQ, not FIQ
-        let grp_reg = GICD_IGROUPR + (intid as usize / 32) * 4;
-        let grp_bit = intid % 32;
-        let grp_val = gic.read_gicd(grp_reg);
-        gic.write_gicd(grp_reg, grp_val | (1 << grp_bit));
-
-        // Set priority
-        let pri_reg = GICD_IPRIORITYR + (intid as usize / 4) * 4;
-        let pri_shift = ((intid % 4) * 8) as u32;
-        let mut pri_val = gic.read_gicd(pri_reg);
-        pri_val &= !(0xFF << pri_shift);
-        pri_val |= (priority as u32) << pri_shift;
-        gic.write_gicd(pri_reg, pri_val);
-
-        // IROUTER defaults to 0 (CPU 0) in GICv3 with ARE, which is correct.
-        // ITARGETSR is RES0 in GICv3 ARE mode, so skip it.
-    }
-    drop(gic);
-    enable_irq(intid);
-}
-
-/// Enable specific interrupt
-pub fn enable_irq(irq: u32) {
-    if irq < 32 {
-        // SGI/PPI: use Redistributor SGI frame (offset +64KB from RD base)
-        let sgi_base = GICR_BASE + GICR_SGI_OFFSET;
-        unsafe {
-            // Configure as Group 1 NS (GICR_IGROUPR0)
-            let group_reg = sgi_base + 0x0080; // GICR_IGROUPR0
-            let current_group = core::ptr::read_volatile(group_reg as *const u32);
-            core::ptr::write_volatile(group_reg as *mut u32, current_group | (1 << irq));
-            
-            // Set priority for this PPI (byte-accessible) - use lower value for higher priority
-            let pri_reg = sgi_base + GICR_IPRIORITYR + (irq as usize);
-            core::ptr::write_volatile(pri_reg as *mut u8, 0x80); // Priority 0x80 (midrange)
-            
-            // Enable the interrupt (set bit in GICR_ISENABLER0)
-            let enable_reg = sgi_base + GICR_ISENABLER0;
-            let bit = irq;
-            core::ptr::write_volatile(enable_reg as *mut u32, 1 << bit);
-        }
-    } else {
-        // SPI: use Distributor
-        let gic = GIC.lock();
-        let reg = (irq / 32) as usize;
-        let bit = irq % 32;
-        
-        unsafe {
-            gic.write_gicd(GICD_ISENABLER + reg * 4, 1 << bit);
-        }
+        core::arch::asm!("cli");
     }
 }
 
-/// Disable specific interrupt
-pub fn disable_irq(irq: u32) {
-    let gic = GIC.lock();
-    let reg = (irq / 32) as usize;
-    let bit = irq % 32;
-    
-    unsafe {
-        gic.write_gicd(GICD_ICENABLER + reg * 4, 1 << bit);
-    }
-}
+/// Execute a closure with interrupts disabled, then restore the previous state.
+///
+/// This is the safe way to create critical sections in the kernel.
+/// It handles nested disable/enable correctly by checking the previous IF state.
+pub fn without_interrupts<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    let was_enabled = super::cpu::interrupts_enabled();
 
-/// Handle IRQ (called from exception handler)
-#[cfg(target_arch = "aarch64")]
-pub fn handle_irq() {
-    let iar: u64;
-    unsafe {
-        core::arch::asm!("mrs {}, ICC_IAR1_EL1", out(reg) iar);
+    if was_enabled {
+        disable();
     }
-    
-    let irq = (iar & 0x3FF) as u32;
-    
-    // Dispatch to registered handlers (non-preemptive path)
-    match irq {
-        30 => crate::hal::timer::handle_timer_irq(),
-        33 => crate::hal::console::handle_uart_irq(), // UART0 SPI #1 = IRQ 33
-        48..=79 => crate::drivers::virtio_mmio::handle_irq((irq - 48) as usize),
-        1023 => { /* Spurious interrupt, ignore */ }
-        _ => crate::kprintln!("Unhandled IRQ: {}", irq),
-    }
-    
-    // End of interrupt
-    unsafe {
-        core::arch::asm!("msr ICC_EOIR1_EL1, {}", in(reg) iar);
-    }
-}
 
-#[cfg(target_arch = "x86_64")]
-pub fn handle_irq() {
-    // x86_64 interrupt handling - read from PIC/APIC
-    // For now, just handle timer and acknowledge
-    // TODO: Implement proper x86_64 interrupt controller support
-    crate::hal::timer::handle_timer_irq();
-    
-    // Send EOI to PIC (if using legacy PIC)
-    unsafe {
-        // Master PIC
-        core::arch::asm!("out 0x20, al", in("al") 0x20u8);
-    }
-}
+    let result = f();
 
-/// Handle IRQ with context for preemption
-#[cfg(target_arch = "aarch64")]
-pub fn handle_irq_preemptive(ctx: &mut crate::arch::exceptions::ExceptionContext) {
-    let iar: u64;
-    unsafe {
-        core::arch::asm!("mrs {}, ICC_IAR1_EL1", out(reg) iar);
+    if was_enabled {
+        enable();
     }
-    
-    let irq = (iar & 0x3FF) as u32;
-    
-    // Dispatch to registered handlers with preemption support
-    match irq {
-        30 => crate::hal::timer::handle_timer_irq_preemptive(ctx),
-        33 => crate::hal::console::handle_uart_irq(), // UART0 SPI #1 = IRQ 33
-        48..=79 => crate::drivers::virtio_mmio::handle_irq((irq - 48) as usize),
-        1023 => { /* Spurious interrupt, ignore */ }
-        _ => crate::kprintln!("Unhandled IRQ: {}", irq),
-    }
-    
-    // End of interrupt
-    unsafe {
-        core::arch::asm!("msr ICC_EOIR1_EL1, {}", in(reg) iar);
-    }
-}
 
-#[cfg(target_arch = "x86_64")]
-pub fn handle_irq_preemptive(ctx: &mut crate::arch::exceptions::ExceptionContext) {
-    // x86_64 interrupt handling with preemption
-    // For now, just handle timer with preemption
-    crate::hal::timer::handle_timer_irq_preemptive(ctx);
-    
-    // Send EOI to PIC
-    unsafe {
-        core::arch::asm!("out 0x20, al", in("al") 0x20u8);
-    }
+    result
 }

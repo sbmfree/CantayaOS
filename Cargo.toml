@@ -1,14 +1,38 @@
-[workspace]
-members = [
-    "kernel",
-    "bootloader",
-]
-resolver = "2"
+# CantayaOS - A modern Windows-inspired 64-bit operating system
+#
+# This is the root workspace manifest. CantayaOS is structured as a Cargo workspace
+# with multiple crates, each responsible for a distinct layer of the OS:
+#
+#   - shared/      : Common types shared between bootloader and kernel (boot protocol)
+#   - bootloader/  : UEFI bootloader that loads the kernel ELF and sets up the environment
+#   - kernel/      : The hybrid kernel with HAL, core, and executive layers
+#
+# This modular design mirrors the Windows NT architecture:
+#   UEFI Boot → Bootloader → HAL → Kernel Core → Executive → (future) Subsystems
 
+[workspace]
+resolver = "2"
+members = [
+    "shared",
+    "bootloader",
+    "kernel",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["CantayaOS Contributors"]
+license = "MIT"
+
+[workspace.dependencies]
+# Shared dependency versions managed at workspace level for consistency
+log = "0.4"
+spin = "0.9"
+bitflags = "2.4"
+
+# Both dev and release profiles must use abort-based panics for no_std targets
 [profile.dev]
 panic = "abort"
 
 [profile.release]
 panic = "abort"
-lto = true
-opt-level = "z"

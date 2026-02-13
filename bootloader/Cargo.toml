@@ -1,10 +1,23 @@
+# CantayaOS UEFI Bootloader
+#
+# This crate builds a UEFI application (.efi) that:
+#   1. Initializes UEFI services
+#   2. Sets up the framebuffer via GOP (Graphics Output Protocol)
+#   3. Loads the kernel ELF from the boot filesystem
+#   4. Sets up 4-level paging with the kernel mapped to the higher half
+#   5. Retrieves the UEFI memory map
+#   6. Exits UEFI boot services
+#   7. Jumps to the kernel entry point with BootInfo
+#
+# Target: x86_64-unknown-uefi (built-in Rust target)
+
 [package]
 name = "cantaya_bootloader"
-version = "0.1.0"
-edition = "2021"
-description = "CantayaOS UEFI Bootloader for ARM64"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 
 [dependencies]
-
-[lib]
-crate-type = ["staticlib"]
+cantaya_shared = { path = "../shared" }
+uefi = { version = "0.33", features = ["alloc", "global_allocator", "panic_handler"] }
+log = { workspace = true }

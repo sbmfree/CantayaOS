@@ -1,21 +1,24 @@
+# CantayaOS Kernel
+#
+# The hybrid kernel, inspired by Windows NT architecture.
+# This is a #![no_std] bare-metal kernel for x86_64.
+#
+# Architecture layers (bottom to top):
+#   1. HAL (Hardware Abstraction Layer) — CPU, interrupts, timers, port I/O
+#   2. Kernel Core — memory manager, scheduler, synchronization
+#   3. Executive — process manager, I/O manager, object manager, security
+#   4. (Future) Subsystems — Win32-like compatibility layer
+#
+# The kernel is loaded by our UEFI bootloader at 0xFFFFFFFF80000000 (higher half).
+
 [package]
 name = "cantaya_kernel"
-version = "0.1.0"
-edition = "2021"
-authors = ["CantayaOS Team"]
-description = "CantayaOS Hybrid Kernel for ARM64"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 
 [dependencies]
-spin = "0.9"
-bitflags = "2.4"
-
-[features]
-default = []
-debug = []
-
-[lib]
-crate-type = ["staticlib", "rlib"]
-
-[[bin]]
-name = "cantaya_kernel"
-path = "src/main.rs"
+cantaya_shared = { path = "../shared" }
+spin = { workspace = true }
+bitflags = { workspace = true }
+log = { workspace = true }
