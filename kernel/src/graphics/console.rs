@@ -260,6 +260,42 @@ pub fn dimensions() -> (usize, usize) {
     let console = CONSOLE.lock();
     (console.cols, console.rows)
 }
+
+/// Draw or erase a block cursor at the current cursor position.
+///
+/// When `visible` is true, draws a solid block in the foreground color.
+/// When `visible` is false, erases the cursor by filling with background color.
+/// Calls present() to push the change to the hardware framebuffer immediately.
+pub fn draw_cursor(visible: bool) {
+    let (col, row, fg, bg);
+    {
+        let console = CONSOLE.lock();
+        if !console.initialized { return; }
+        col = console.col;
+        row = console.row;
+        // Don't draw cursor past the visible area
+        if row >= console.rows || col >= console.cols { return; }
+        fg = console.fg_color;
+        bg = console.bg_color;
+    }
+
+    if visible {
+        // Draw a block cursor (solid rectangle)
+        let mut fb = FRAMEBUFFER.lock();
+        let x = col as u32 * CHAR_WIDTH;
+        let y = row as u32 * CHAR_HEIGHT;
+        // Draw a slightly shorter block (bottom 3 rows of the char cell = underscore style)
+        fb.fill_rect(x, y + CHAR_HEIGHT - 3, CHAR_WIDTH, 3, fg);
+        fb.present();
+    } else {
+        // Erase cursor
+        let mut fb = FRAMEBUFFER.lock();
+        let x = col as u32 * CHAR_WIDTH;
+        let y = row as u32 * CHAR_HEIGHT;
+        fb.fill_rect(x, y + CHAR_HEIGHT - 3, CHAR_WIDTH, 3, bg);
+        fb.present();
+    }
+}
 /// Draw the status bar on the reserved bottom row of the screen.
 ///
 /// Renders `text` in a contrasting color bar at the very last character row.

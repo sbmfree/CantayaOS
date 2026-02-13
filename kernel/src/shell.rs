@@ -217,6 +217,10 @@ pub fn run() -> ! {
 
     // Track last status bar update tick for periodic refresh
     let mut last_status_tick: u64 = 0;
+    // Cursor blink state
+    let mut cursor_visible = true;
+    let mut last_cursor_tick: u64 = 0;
+    const CURSOR_BLINK_INTERVAL: u64 = 530; // ~530ms per phase (standard blink rate)
 
     loop {
         // Periodically refresh the status bar (every ~1000 ticks = 1 second)
@@ -224,6 +228,13 @@ pub fn run() -> ! {
         if now.wrapping_sub(last_status_tick) >= 1000 {
             last_status_tick = now;
             update_status_bar();
+        }
+
+        // Blink cursor
+        if now.wrapping_sub(last_cursor_tick) >= CURSOR_BLINK_INTERVAL {
+            last_cursor_tick = now;
+            cursor_visible = !cursor_visible;
+            console::draw_cursor(cursor_visible);
         }
 
         // Non-blocking key poll — if no key, HLT until next interrupt and retry
@@ -234,6 +245,13 @@ pub fn run() -> ! {
                 continue;
             }
         };
+
+        // Key pressed — ensure cursor is visible & reset blink timer
+        if !cursor_visible {
+            console::draw_cursor(false); // erase old cursor before typing
+        }
+        cursor_visible = true;
+        last_cursor_tick = now;
 
         match event.ascii {
             // Enter — execute command
