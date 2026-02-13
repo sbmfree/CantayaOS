@@ -355,6 +355,51 @@ impl Framebuffer {
         }
         self.mark_dirty_rect(x, y, w, h);
     }
+
+    /// Fast blit: copy a row-major u32 pixel buffer into the back buffer at (x, y).
+    /// Uses per-row memcpy for maximum throughput. Ideal for cached surfaces.
+    pub fn blit_buffer(&mut self, x: u32, y: u32, w: u32, h: u32, pixels: &[u32]) {
+        if !self.initialized { return; }
+        let target = self.draw_target();
+        for row in 0..h {
+            let py = y + row;
+            if py >= self.height { break; }
+            let cols = w.min(self.width.saturating_sub(x)) as usize;
+            if cols == 0 { continue; }
+            let src_off = (row * w) as usize;
+            let dst_ptr = (target + (py * self.stride + x) as u64 * 4) as *mut u32;
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    pixels.as_ptr().add(src_off),
+                    dst_ptr,
+                    cols,
+                );
+            }
+        }
+        self.mark_dirty_rect(x, y, w, h);
+    }
+
+    /// Fast snapshot: copy a rectangular region from the back buffer into a
+    /// row-major u32 buffer. Uses per-row memcpy.
+    pub fn snapshot_region(&self, x: u32, y: u32, w: u32, h: u32, buf: &mut [u32]) {
+        if !self.initialized { return; }
+        let target = self.draw_target();
+        for row in 0..h {
+            let py = y + row;
+            if py >= self.height { break; }
+            let cols = w.min(self.width.saturating_sub(x)) as usize;
+            if cols == 0 { continue; }
+            let dst_off = (row * w) as usize;
+            let src_ptr = (target + (py * self.stride + x) as u64 * 4) as *const u32;
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    src_ptr,
+                    buf.as_mut_ptr().add(dst_off),
+                    cols,
+                );
+            }
+        }
+    }
 }
 
 pub static FRAMEBUFFER: Mutex<Framebuffer> = Mutex::new(Framebuffer::new());
