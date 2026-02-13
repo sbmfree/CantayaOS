@@ -119,6 +119,44 @@ fn env_remove(key: &str) {
     }
 }
 
+/// Command aliases — user-defined shortcut names for commands
+static ALIASES: spin::Mutex<Option<BTreeMap<String, String>>> = spin::Mutex::new(None);
+
+fn aliases_init() {
+    let mut a = ALIASES.lock();
+    if a.is_none() {
+        let mut map = BTreeMap::new();
+        // Default aliases
+        map.insert("ll".into(), "dir".into());
+        map.insert("cls".into(), "clear".into());
+        map.insert("quit".into(), "halt".into());
+        map.insert("exit".into(), "halt".into());
+        *a = Some(map);
+    }
+}
+
+fn alias_get(name: &str) -> Option<String> {
+    aliases_init();
+    let a = ALIASES.lock();
+    a.as_ref().and_then(|m| m.get(name).cloned())
+}
+
+fn alias_set(name: &str, value: &str) {
+    aliases_init();
+    let mut a = ALIASES.lock();
+    if let Some(ref mut m) = *a {
+        m.insert(name.into(), value.into());
+    }
+}
+
+fn alias_remove(name: &str) {
+    aliases_init();
+    let mut a = ALIASES.lock();
+    if let Some(ref mut m) = *a {
+        m.remove(name);
+    }
+}
+
 /// Static command history accessible from the `history` command
 static CMD_HISTORY: spin::Mutex<History> = spin::Mutex::new(History::new());
 
@@ -354,17 +392,17 @@ pub fn run() -> ! {
 /// Simple tab completion — returns the first command matching the prefix.
 fn tab_complete(prefix: &str) -> Option<&'static str> {
     const COMMANDS: &[&str] = &[
-        "acpi", "append", "arp", "banner", "beep", "bootinfo", "cal", "cat", "cd",
-        "chdir", "clear", "cls", "color", "copy", "cp", "cpu", "date", "del",
-        "desktop", "dir", "disk", "echo", "edit", "env", "find",
-        "fortune", "grep", "halt", "head", "help", "hexdump", "history",
-        "hostname", "interrupts", "ip", "ipconfig", "irq", "kill", "ls", "lspci", "md",
-        "mem", "memory", "memmap", "mkdir", "mv", "netstat", "panic", "pci",
-        "ping", "poweroff", "priority", "ps", "pwd", "reboot", "rename", "rm",
-        "set", "shutdown", "sleep", "spawn", "stat", "sysinfo",
-        "tail", "tasks", "tick", "touch", "tree", "type", "unset",
-        "uptime", "ver", "version", "vol", "wc", "whoami", "write", "xxd",
-        "yield",
+        "acpi", "alias", "append", "arp", "banner", "beep", "bootinfo", "cal",
+        "calc", "cat", "cd", "chdir", "clear", "cls", "color", "copy", "cp",
+        "cpu", "date", "del", "desktop", "dir", "disk", "echo", "edit", "env",
+        "exec", "find", "fortune", "grep", "halt", "head", "help", "hexdump",
+        "history", "hostname", "interrupts", "ip", "ipconfig", "irq", "kill",
+        "ls", "lspci", "md", "mem", "memory", "memmap", "mkdir", "more", "mv",
+        "netstat", "panic", "pci", "ping", "poweroff", "priority", "ps", "pwd",
+        "reboot", "rename", "rm", "run", "set", "shutdown", "sleep", "sort",
+        "source", "spawn", "stat", "sysinfo", "tail", "tasks", "tick", "time",
+        "touch", "tree", "type", "unalias", "uniq", "unset", "uptime", "ver",
+        "version", "vol", "wc", "which", "whoami", "write", "xxd", "yield",
     ];
     COMMANDS.iter().find(|cmd| cmd.starts_with(prefix)).copied()
 }
@@ -458,23 +496,266 @@ fn print_banner() {
     console::println("Type 'help' for available commands.\n");
 }
 
+/// Expand %VAR% style environment variables in a command string.
+fn expand_variables(input: &str) -> String {
+    env_init();
+    let mut result = String::new();
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            // Find closing %
+            if let Some(end) = input[i+1..].find('%') {
+                let var_name = &input[i+1..i+1+end];
+                if let Some(value) = env_get(var_name) {
+                    result.push_str(&value);
+                } else {
+                    // Keep the original %VAR% if not found
+                    result.push('%');
+                    result.push_str(var_name);
+                    result.push('%');
+                }
+                i += end + 2;
+                continue;
+            }
+        }
+        result.push(bytes[i] as char);
+        i += 1;
+    }
+    result
+}
+
 /// Execute a shell command.
 fn execute_command(input: &str) {
     let input = input.trim();
     if input.is_empty() { return; }
 
+    // Expand environment variables (%VAR% style)
+    let expanded = expand_variables(input);
+    let input = expanded.trim();
+
     // Support command chaining with ';'
-    if input.contains(';') {
+    if input.contains(';') && !input.contains('|') {
         for part in input.split(';') {
             let part = part.trim();
             if !part.is_empty() {
-                execute_single_command(part);
+                execute_with_redirect(part);
             }
         }
         return;
     }
 
+    // Support piping with '|'
+    if input.contains('|') {
+        execute_pipeline(input);
+        return;
+    }
+
+    execute_with_redirect(input);
+}
+
+/// Handle output redirection (> and >>).
+fn execute_with_redirect(input: &str) {
+    use crate::storage::vfs;
+
+    // Check for append redirection >>
+    if let Some(pos) = input.find(">>") {
+        let cmd_part = input[..pos].trim();
+        let file_part = input[pos+2..].trim();
+        if !file_part.is_empty() && !cmd_part.is_empty() {
+            console::start_capture();
+            execute_single_command(cmd_part);
+            let output = console::stop_capture();
+            // Append to file
+            let path = resolve_path(file_part);
+            let existing = vfs::read_file(&path).unwrap_or_default();
+            let mut new_data = existing;
+            new_data.extend_from_slice(output.as_bytes());
+            vfs::write_file(&path, &new_data);
+            return;
+        }
+    }
+
+    // Check for overwrite redirection >
+    if let Some(pos) = input.find('>') {
+        // Make sure it's not >>
+        if pos + 1 < input.len() && input.as_bytes()[pos + 1] != b'>' {
+            let cmd_part = input[..pos].trim();
+            let file_part = input[pos+1..].trim();
+            if !file_part.is_empty() && !cmd_part.is_empty() {
+                console::start_capture();
+                execute_single_command(cmd_part);
+                let output = console::stop_capture();
+                let path = resolve_path(file_part);
+                vfs::write_file(&path, output.as_bytes());
+                return;
+            }
+        }
+    }
+
     execute_single_command(input);
+}
+
+/// Execute a pipeline of commands (cmd1 | cmd2 | cmd3).
+fn execute_pipeline(input: &str) {
+    let commands: alloc::vec::Vec<&str> = input.split('|').collect();
+    if commands.is_empty() { return; }
+
+    // Execute first command with capture
+    let first = commands[0].trim();
+    if first.is_empty() { return; }
+
+    console::start_capture();
+    execute_single_command(first);
+    let mut pipe_data = console::stop_capture();
+
+    // For each subsequent command, feed the captured output as "piped input"
+    for cmd_str in &commands[1..] {
+        let cmd_str = cmd_str.trim();
+        if cmd_str.is_empty() { continue; }
+
+        // Parse pipe-receiving commands that can accept piped input
+        let (cmd, args) = match cmd_str.find(' ') {
+            Some(pos) => (&cmd_str[..pos], cmd_str[pos + 1..].trim()),
+            None => (cmd_str, ""),
+        };
+
+        let result = match cmd {
+            "grep" => pipe_grep(&pipe_data, args),
+            "head" => pipe_head(&pipe_data, args),
+            "tail" => pipe_tail(&pipe_data, args),
+            "wc" => pipe_wc(&pipe_data),
+            "sort" => pipe_sort(&pipe_data),
+            "uniq" => pipe_uniq(&pipe_data),
+            "more" => { pipe_more(&pipe_data); String::new() }
+            _ => {
+                // For unsupported pipe targets, just print the input
+                console::print(&pipe_data);
+                String::new()
+            }
+        };
+        pipe_data = result;
+    }
+
+    // Print final output if any
+    if !pipe_data.is_empty() {
+        console::print(&pipe_data);
+    }
+}
+
+/// Pipe-compatible grep: filter lines matching pattern.
+fn pipe_grep(input: &str, pattern: &str) -> String {
+    let mut result = String::new();
+    for line in input.lines() {
+        if line.contains(pattern) {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    result
+}
+
+/// Pipe-compatible head: first N lines.
+fn pipe_head(input: &str, args: &str) -> String {
+    let n: usize = args.trim().parse().unwrap_or(10);
+    let mut result = String::new();
+    for (i, line) in input.lines().enumerate() {
+        if i >= n { break; }
+        result.push_str(line);
+        result.push('\n');
+    }
+    result
+}
+
+/// Pipe-compatible tail: last N lines.
+fn pipe_tail(input: &str, args: &str) -> String {
+    let n: usize = args.trim().parse().unwrap_or(10);
+    let lines: alloc::vec::Vec<&str> = input.lines().collect();
+    let start = if lines.len() > n { lines.len() - n } else { 0 };
+    let mut result = String::new();
+    for line in &lines[start..] {
+        result.push_str(line);
+        result.push('\n');
+    }
+    result
+}
+
+/// Pipe-compatible wc: count lines/words/chars.
+fn pipe_wc(input: &str) -> String {
+    let lines = input.lines().count();
+    let words = input.split_whitespace().count();
+    let chars = input.len();
+    let mut s = String::new();
+    write!(s, "  {} lines, {} words, {} bytes", lines, words, chars).ok();
+    s.push('\n');
+    s
+}
+
+/// Pipe-compatible sort: sort lines alphabetically.
+fn pipe_sort(input: &str) -> String {
+    let mut lines: alloc::vec::Vec<&str> = input.lines().collect();
+    lines.sort();
+    let mut result = String::new();
+    for line in lines {
+        result.push_str(line);
+        result.push('\n');
+    }
+    result
+}
+
+/// Pipe-compatible uniq: remove consecutive duplicate lines.
+fn pipe_uniq(input: &str) -> String {
+    let mut result = String::new();
+    let mut prev: Option<&str> = None;
+    for line in input.lines() {
+        if prev != Some(line) {
+            result.push_str(line);
+            result.push('\n');
+        }
+        prev = Some(line);
+    }
+    result
+}
+
+/// Pipe-compatible more: display text one page at a time.
+fn pipe_more(input: &str) {
+    let (_, rows) = console::dimensions();
+    let page_size = rows - 2; // Leave room for prompt
+    let lines: alloc::vec::Vec<&str> = input.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let end = (i + page_size).min(lines.len());
+        for line in &lines[i..end] {
+            console::println(line);
+        }
+        i = end;
+        if i < lines.len() {
+            console::set_color(0x00, 0x00, 0x00);
+            console::print("-- More -- (SPACE=next page, Q=quit)");
+            console::set_color(0xFF, 0xFF, 0xFF);
+            loop {
+                if let Some(key) = keyboard::try_read_char() {
+                    if key.pressed {
+                        if key.ascii == b' ' { break; }
+                        if key.ascii == b'q' || key.ascii == b'Q' {
+                            console::println("");
+                            return;
+                        }
+                        if key.key == KeyCode::Enter { 
+                            // Advance one line
+                            i = i.wrapping_sub(page_size - 1);
+                            break;
+                        }
+                    }
+                }
+            }
+            // Clear the "More" prompt
+            console::print("\r");
+            let blank = "                                     ";
+            console::print(blank);
+            console::print("\r");
+        }
+    }
 }
 
 fn execute_single_command(input: &str) {
@@ -552,12 +833,35 @@ fn execute_single_command(input: &str) {
         "ip" | "ipconfig" => cmd_ip(args),
         "arp" => cmd_arp(),
         "netstat" => cmd_netstat(),
+        // Shell power-ups
+        "alias" => cmd_alias(args),
+        "unalias" => cmd_unalias(args),
+        "run" | "exec" | "source" => cmd_run(args),
+        "time" => cmd_time(args),
+        "sort" => cmd_sort(args),
+        "uniq" => cmd_uniq(args),
+        "more" => cmd_more(args),
+        "which" => cmd_which(args),
+        "calc" => cmd_calc(args),
         _ => {
-            let mut s = String::new();
-            write!(s, "'{}' is not recognized as an internal or external command.", cmd).ok();
-            console::set_color(0xFF, 0x55, 0x55);
-            console::println(&s);
-            console::set_color(0xFF, 0xFF, 0xFF);
+            // Check aliases before reporting unknown command
+            if let Some(alias_cmd) = alias_get(cmd) {
+                let full_cmd = if args.is_empty() {
+                    alias_cmd
+                } else {
+                    let mut c = alias_cmd;
+                    c.push(' ');
+                    c.push_str(args);
+                    c
+                };
+                execute_single_command(&full_cmd);
+            } else {
+                let mut s = String::new();
+                write!(s, "'{}' is not recognized as an internal or external command.", cmd).ok();
+                console::set_color(0xFF, 0x55, 0x55);
+                console::println(&s);
+                console::set_color(0xFF, 0xFF, 0xFF);
+            }
         }
     }
 }
@@ -648,6 +952,22 @@ fn cmd_help() {
     console::println("  ip / ipconfig    Show/set network configuration");
     console::println("  arp              Show ARP cache");
     console::println("  netstat          Show network statistics");
+    console::set_color(0xFF, 0xFF, 0x55);
+    console::println("\nShell Power-ups:");
+    console::set_color(0xFF, 0xFF, 0xFF);
+    console::println("  alias [n=cmd]    Define/list command aliases");
+    console::println("  unalias <name>   Remove a command alias");
+    console::println("  run <script>     Execute a script file");
+    console::println("  time <cmd>       Measure command execution time");
+    console::println("  sort <file>      Sort file lines alphabetically");
+    console::println("  uniq <file>      Remove consecutive duplicate lines");
+    console::println("  more <file>      View file with paged scrolling");
+    console::println("  which <cmd>      Check if a command exists");
+    console::println("  calc <expr>      Integer calculator (+,-,*,/,%)");
+    console::println("  cmd > file       Redirect output to file");
+    console::println("  cmd >> file      Append output to file");
+    console::println("  cmd1 | cmd2      Pipe output between commands");
+    console::println("  %VAR%            Expand environment variables");
     console::set_color(0xAA, 0xAA, 0xAA);
     console::println("\nTip: Up/Down = history | Tab = completion | ; = chain commands");
     console::set_color(0xFF, 0xFF, 0xFF);
@@ -3442,4 +3762,410 @@ fn cmd_netstat() {
     write!(s, "    UDP Received:   {}", stats.udp_received).ok();
     console::println(&s);
     console::println("");
+}
+
+// ============================================================================
+// Shell Power-up Commands
+// ============================================================================
+
+/// Resolve a file path (for redirection).
+fn resolve_path(path: &str) -> String {
+    String::from(path.trim())
+}
+
+fn cmd_alias(args: &str) {
+    aliases_init();
+    if args.is_empty() {
+        // List all aliases
+        let a = ALIASES.lock();
+        if let Some(ref map) = *a {
+            if map.is_empty() {
+                console::println("No aliases defined.");
+            } else {
+                console::set_color(0xFF, 0xFF, 0x55);
+                console::println("Command Aliases:");
+                console::set_color(0xFF, 0xFF, 0xFF);
+                for (name, value) in map {
+                    let mut s = String::new();
+                    write!(s, "  {} = {}", name, value).ok();
+                    console::println(&s);
+                }
+            }
+        }
+        return;
+    }
+
+    // Parse alias definition: alias name=command
+    if let Some(eq) = args.find('=') {
+        let name = args[..eq].trim();
+        let value = args[eq+1..].trim();
+        if !name.is_empty() && !value.is_empty() {
+            alias_set(name, value);
+            let mut s = String::new();
+            write!(s, "Alias '{}' set to '{}'", name, value).ok();
+            console::println(&s);
+        } else {
+            console::println("Usage: alias name=command");
+        }
+    } else {
+        // Show single alias
+        if let Some(value) = alias_get(args.trim()) {
+            let mut s = String::new();
+            write!(s, "  {} = {}", args.trim(), value).ok();
+            console::println(&s);
+        } else {
+            let mut s = String::new();
+            write!(s, "Alias '{}' not found.", args.trim()).ok();
+            console::println(&s);
+        }
+    }
+}
+
+fn cmd_unalias(args: &str) {
+    if args.is_empty() {
+        console::println("Usage: unalias <name>");
+        return;
+    }
+    alias_remove(args.trim());
+    let mut s = String::new();
+    write!(s, "Alias '{}' removed.", args.trim()).ok();
+    console::println(&s);
+}
+
+fn cmd_run(args: &str) {
+    use crate::storage::vfs;
+
+    if args.is_empty() {
+        console::println("Usage: run <script_file>");
+        return;
+    }
+
+    match vfs::read_file(args.trim()) {
+        Some(data) => {
+            match core::str::from_utf8(&data) {
+                Ok(script) => {
+                    let mut s = String::new();
+                    write!(s, "Running {}...", args.trim()).ok();
+                    console::set_color(0xAA, 0xAA, 0xAA);
+                    console::println(&s);
+                    console::set_color(0xFF, 0xFF, 0xFF);
+
+                    for line in script.lines() {
+                        let line = line.trim();
+                        if line.is_empty() || line.starts_with('#') || line.starts_with("REM") {
+                            continue;
+                        }
+                        execute_command(line);
+                    }
+                }
+                Err(_) => {
+                    console::set_color(0xFF, 0x55, 0x55);
+                    console::println("Error: Script file is not valid UTF-8.");
+                    console::set_color(0xFF, 0xFF, 0xFF);
+                }
+            }
+        }
+        None => {
+            let mut s = String::new();
+            write!(s, "Error: Script '{}' not found.", args.trim()).ok();
+            console::set_color(0xFF, 0x55, 0x55);
+            console::println(&s);
+            console::set_color(0xFF, 0xFF, 0xFF);
+        }
+    }
+}
+
+fn cmd_time(args: &str) {
+    if args.is_empty() {
+        console::println("Usage: time <command>");
+        return;
+    }
+
+    let start = ticks();
+    execute_command(args);
+    let elapsed = ticks().wrapping_sub(start);
+    let ms = crate::hal::pit::ticks_to_ms(elapsed);
+
+    console::set_color(0xAA, 0xAA, 0xAA);
+    let mut s = String::new();
+    if ms >= 1000 {
+        write!(s, "\nExecution time: {}.{:03}s", ms / 1000, ms % 1000).ok();
+    } else {
+        write!(s, "\nExecution time: {}ms", ms).ok();
+    }
+    console::println(&s);
+    console::set_color(0xFF, 0xFF, 0xFF);
+}
+
+fn cmd_sort(args: &str) {
+    use crate::storage::vfs;
+
+    if args.is_empty() {
+        console::println("Usage: sort <filename>");
+        return;
+    }
+
+    match vfs::read_file(args.trim()) {
+        Some(data) => {
+            match core::str::from_utf8(&data) {
+                Ok(text) => {
+                    let sorted = pipe_sort(text);
+                    console::print(&sorted);
+                }
+                Err(_) => {
+                    console::set_color(0xFF, 0x55, 0x55);
+                    console::println("Error: File is not valid UTF-8.");
+                    console::set_color(0xFF, 0xFF, 0xFF);
+                }
+            }
+        }
+        None => {
+            let mut s = String::new();
+            write!(s, "File '{}' not found.", args.trim()).ok();
+            console::set_color(0xFF, 0x55, 0x55);
+            console::println(&s);
+            console::set_color(0xFF, 0xFF, 0xFF);
+        }
+    }
+}
+
+fn cmd_uniq(args: &str) {
+    use crate::storage::vfs;
+
+    if args.is_empty() {
+        console::println("Usage: uniq <filename>");
+        return;
+    }
+
+    match vfs::read_file(args.trim()) {
+        Some(data) => {
+            match core::str::from_utf8(&data) {
+                Ok(text) => {
+                    let result = pipe_uniq(text);
+                    console::print(&result);
+                }
+                Err(_) => {
+                    console::set_color(0xFF, 0x55, 0x55);
+                    console::println("Error: File is not valid UTF-8.");
+                    console::set_color(0xFF, 0xFF, 0xFF);
+                }
+            }
+        }
+        None => {
+            let mut s = String::new();
+            write!(s, "File '{}' not found.", args.trim()).ok();
+            console::set_color(0xFF, 0x55, 0x55);
+            console::println(&s);
+            console::set_color(0xFF, 0xFF, 0xFF);
+        }
+    }
+}
+
+fn cmd_more(args: &str) {
+    use crate::storage::vfs;
+
+    if args.is_empty() {
+        console::println("Usage: more <filename>");
+        return;
+    }
+
+    match vfs::read_file(args.trim()) {
+        Some(data) => {
+            match core::str::from_utf8(&data) {
+                Ok(text) => {
+                    pipe_more(text);
+                }
+                Err(_) => {
+                    console::set_color(0xFF, 0x55, 0x55);
+                    console::println("Error: File is not valid UTF-8.");
+                    console::set_color(0xFF, 0xFF, 0xFF);
+                }
+            }
+        }
+        None => {
+            let mut s = String::new();
+            write!(s, "File '{}' not found.", args.trim()).ok();
+            console::set_color(0xFF, 0x55, 0x55);
+            console::println(&s);
+            console::set_color(0xFF, 0xFF, 0xFF);
+        }
+    }
+}
+
+fn cmd_which(args: &str) {
+    if args.is_empty() {
+        console::println("Usage: which <command>");
+        return;
+    }
+
+    const ALL_COMMANDS: &[&str] = &[
+        "acpi", "alias", "append", "arp", "banner", "beep", "bootinfo", "cal",
+        "calc", "cat", "cd", "chdir", "clear", "cls", "color", "copy", "cp",
+        "cpu", "date", "del", "desktop", "dir", "disk", "echo", "edit", "env",
+        "exec", "find", "fortune", "grep", "halt", "head", "help", "hexdump",
+        "history", "hostname", "interrupts", "ip", "ipconfig", "irq", "kill",
+        "ls", "lspci", "md", "mem", "memory", "memmap", "mkdir", "more", "mv",
+        "netstat", "panic", "pci", "ping", "poweroff", "priority", "ps", "pwd",
+        "reboot", "rename", "rm", "run", "set", "shutdown", "sleep", "sort",
+        "source", "spawn", "stat", "sysinfo", "tail", "tasks", "tick", "time",
+        "touch", "tree", "type", "unalias", "uniq", "unset", "uptime", "ver",
+        "version", "vol", "wc", "which", "whoami", "write", "xxd", "yield",
+    ];
+
+    let cmd_name = args.trim();
+    if ALL_COMMANDS.contains(&cmd_name) {
+        let mut s = String::new();
+        write!(s, "{}: built-in shell command", cmd_name).ok();
+        console::println(&s);
+    } else if alias_get(cmd_name).is_some() {
+        let alias_val = alias_get(cmd_name).unwrap();
+        let mut s = String::new();
+        write!(s, "{}: aliased to '{}'", cmd_name, alias_val).ok();
+        console::println(&s);
+    } else {
+        let mut s = String::new();
+        write!(s, "{}: not found", cmd_name).ok();
+        console::set_color(0xFF, 0x55, 0x55);
+        console::println(&s);
+        console::set_color(0xFF, 0xFF, 0xFF);
+    }
+}
+
+fn cmd_calc(args: &str) {
+    if args.is_empty() {
+        console::println("Usage: calc <expression>");
+        console::println("  Supports: +, -, *, /, %, ()");
+        console::println("  Example:  calc 2 + 3 * 4");
+        console::println("  Example:  calc (10 + 5) * 2");
+        return;
+    }
+
+    match eval_expr(args) {
+        Some(result) => {
+            let mut s = String::new();
+            write!(s, "= {}", result).ok();
+            console::set_color(0x55, 0xFF, 0x55);
+            console::println(&s);
+            console::set_color(0xFF, 0xFF, 0xFF);
+        }
+        None => {
+            console::set_color(0xFF, 0x55, 0x55);
+            console::println("Error: Invalid expression.");
+            console::set_color(0xFF, 0xFF, 0xFF);
+        }
+    }
+}
+
+/// Simple recursive descent expression evaluator for integer arithmetic.
+fn eval_expr(input: &str) -> Option<i64> {
+    let tokens = tokenize_expr(input)?;
+    let mut pos = 0;
+    let result = parse_add_sub(&tokens, &mut pos)?;
+    if pos == tokens.len() {
+        Some(result)
+    } else {
+        None // leftover tokens
+    }
+}
+
+#[derive(Debug, Clone)]
+enum Token {
+    Num(i64),
+    Op(u8), // b'+', b'-', b'*', b'/', b'%'
+    LParen,
+    RParen,
+}
+
+fn tokenize_expr(input: &str) -> Option<alloc::vec::Vec<Token>> {
+    let mut tokens = alloc::vec::Vec::new();
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b' ' | b'\t' => { i += 1; }
+            b'+' | b'-' | b'*' | b'/' | b'%' => {
+                // Handle negative numbers: if '-' is at start or after operator/lparen
+                if bytes[i] == b'-' {
+                    let is_unary = tokens.is_empty() ||
+                        matches!(tokens.last(), Some(Token::Op(_)) | Some(Token::LParen));
+                    if is_unary {
+                        // Parse as negative number
+                        i += 1;
+                        let start = i;
+                        while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
+                        if i == start { return None; }
+                        let num_str = core::str::from_utf8(&bytes[start..i]).ok()?;
+                        let n: i64 = num_str.parse().ok()?;
+                        tokens.push(Token::Num(-n));
+                        continue;
+                    }
+                }
+                tokens.push(Token::Op(bytes[i]));
+                i += 1;
+            }
+            b'(' => { tokens.push(Token::LParen); i += 1; }
+            b')' => { tokens.push(Token::RParen); i += 1; }
+            b'0'..=b'9' => {
+                let start = i;
+                while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
+                let num_str = core::str::from_utf8(&bytes[start..i]).ok()?;
+                tokens.push(Token::Num(num_str.parse().ok()?));
+            }
+            _ => return None,
+        }
+    }
+    Some(tokens)
+}
+
+fn parse_add_sub(tokens: &[Token], pos: &mut usize) -> Option<i64> {
+    let mut left = parse_mul_div(tokens, pos)?;
+    while *pos < tokens.len() {
+        match tokens[*pos] {
+            Token::Op(b'+') => { *pos += 1; left += parse_mul_div(tokens, pos)?; }
+            Token::Op(b'-') => { *pos += 1; left -= parse_mul_div(tokens, pos)?; }
+            _ => break,
+        }
+    }
+    Some(left)
+}
+
+fn parse_mul_div(tokens: &[Token], pos: &mut usize) -> Option<i64> {
+    let mut left = parse_primary(tokens, pos)?;
+    while *pos < tokens.len() {
+        match tokens[*pos] {
+            Token::Op(b'*') => { *pos += 1; left *= parse_primary(tokens, pos)?; }
+            Token::Op(b'/') => {
+                *pos += 1;
+                let right = parse_primary(tokens, pos)?;
+                if right == 0 { return None; } // division by zero
+                left /= right;
+            }
+            Token::Op(b'%') => {
+                *pos += 1;
+                let right = parse_primary(tokens, pos)?;
+                if right == 0 { return None; }
+                left %= right;
+            }
+            _ => break,
+        }
+    }
+    Some(left)
+}
+
+fn parse_primary(tokens: &[Token], pos: &mut usize) -> Option<i64> {
+    if *pos >= tokens.len() { return None; }
+    match &tokens[*pos] {
+        Token::Num(n) => { let v = *n; *pos += 1; Some(v) }
+        Token::LParen => {
+            *pos += 1;
+            let result = parse_add_sub(tokens, pos)?;
+            if *pos < tokens.len() && matches!(tokens[*pos], Token::RParen) {
+                *pos += 1;
+                Some(result)
+            } else {
+                None // missing closing paren
+            }
+        }
+        _ => None,
+    }
 }

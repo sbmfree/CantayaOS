@@ -16,6 +16,10 @@
 use super::font::{self, CHAR_HEIGHT, CHAR_WIDTH};
 use super::framebuffer::{Color, FRAMEBUFFER};
 use spin::Mutex;
+use core::sync::atomic::{AtomicBool, Ordering};
+
+extern crate alloc;
+use alloc::string::String;
 
 /// Maximum console dimensions (columns × rows)
 /// These are generous limits; actual dimensions depend on framebuffer resolution.
@@ -58,6 +62,32 @@ impl Console {
 }
 
 static CONSOLE: Mutex<Console> = Mutex::new(Console::new());
+
+/// Output capture mode — when active, print/println append to a buffer
+/// instead of (or in addition to) writing to the framebuffer.
+static CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
+static CAPTURE_BUFFER: Mutex<String> = Mutex::new(String::new());
+
+/// Start capturing console output into a string buffer.
+/// While capture is active, output still goes to screen AND to the buffer.
+pub fn start_capture() {
+    CAPTURE_BUFFER.lock().clear();
+    CAPTURE_ACTIVE.store(true, Ordering::Release);
+}
+
+/// Stop capturing and return the captured output.
+pub fn stop_capture() -> String {
+    CAPTURE_ACTIVE.store(false, Ordering::Release);
+    let mut buf = CAPTURE_BUFFER.lock();
+    let result = buf.clone();
+    buf.clear();
+    result
+}
+
+/// Check if capture mode is active.
+pub fn is_capturing() -> bool {
+    CAPTURE_ACTIVE.load(Ordering::Acquire)
+}
 
 /// Initialize the text console based on the current framebuffer dimensions.
 pub fn init() {
@@ -190,6 +220,10 @@ fn write_char(c: char) {
 
 /// Print a string to the console.
 pub fn print(s: &str) {
+    // If capturing, append to capture buffer
+    if CAPTURE_ACTIVE.load(Ordering::Acquire) {
+        CAPTURE_BUFFER.lock().push_str(s);
+    }
     for c in s.chars() {
         write_char(c);
     }
@@ -200,8 +234,18 @@ pub fn print(s: &str) {
 
 /// Print a string followed by a newline.
 pub fn println(s: &str) {
-    print(s);
+    // If capturing, append to capture buffer with newline
+    if CAPTURE_ACTIVE.load(Ordering::Acquire) {
+        let mut buf = CAPTURE_BUFFER.lock();
+        buf.push_str(s);
+        buf.push('\n');
+    }
+    for c in s.chars() {
+        write_char(c);
+    }
     write_char('\n');
+    let mut fb = FRAMEBUFFER.lock();
+    fb.present();
 }
 
 /// Handle a backspace: erase the character behind the cursor.
