@@ -501,8 +501,9 @@ extern "C" fn handle_mouse(_frame: &InterruptStackFrame) {
 }
 
 extern "C" fn handle_virtio(_frame: &InterruptStackFrame) {
-    // Dispatch to the virtio-blk driver
+    // Dispatch to both virtio drivers (they share the IRQ line)
     super::virtio_blk::handle_interrupt();
+    super::virtio_net::handle_interrupt();
 
     // Virtio typically uses a slave PIC IRQ (IRQ 10/11) — send EOI to both PICs
     unsafe {
