@@ -8,7 +8,10 @@
 //   2. Heap Allocator — provides dynamic allocation (alloc::Box, Vec, etc.)
 //      Uses a linked-list free-list allocator on top of the frame allocator.
 //
-//   3. (Future) Virtual Memory Manager — per-process page tables, demand paging
+//   3. Paging — x86_64 4-level page table manipulation (map/unmap/translate)
+//
+//   4. VMM (Virtual Memory Manager) — virtual address space management,
+//      tracks allocated regions, provides alloc_and_map / unmap_and_free.
 //
 // In Windows NT, this is handled by the Memory Manager (Mm) component:
 //   - MmInitializeMemoryManager() sets up the PFN database (our frame allocator)
@@ -17,11 +20,15 @@
 //
 // Initialization order:
 //   1. Initialize frame allocator from the UEFI memory map
-//   2. Allocate initial heap pages using the frame allocator
+//   2. Allocate initial heap pages using the frame allocator (identity-mapped)
 //   3. Initialize the heap allocator over those pages
+//   4. Initialize the VMM (captures CR3, sets up virtual region tracking)
+//   5. (Future) Re-map the heap to HEAP_REGION_START via VMM
 
 pub mod frame_allocator;
 pub mod heap;
+pub mod paging;
+pub mod vmm;
 
 use cantaya_shared::boot_info::BootInfo;
 
@@ -40,7 +47,11 @@ pub fn init(boot_info: &'static BootInfo) {
         frame_allocator::free_frame_count() * 4 / 1024
     );
 
-    // Step 2: Initialize the kernel heap
+    // Step 2: Initialize the kernel heap (uses identity-mapped physical frames)
     heap::init();
     log::info!("Kernel heap initialized");
+
+    // Step 3: Initialize the VMM (captures CR3, prepares virtual region tracking)
+    vmm::init();
+    log::info!("Virtual memory manager initialized");
 }

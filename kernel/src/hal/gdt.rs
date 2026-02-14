@@ -17,6 +17,7 @@
 //   0x20: User data segment (Ring 3) — for future user mode
 //   0x28: TSS segment (16 bytes, spans two GDT entries)
 
+use core::cell::UnsafeCell;
 use core::mem::size_of;
 
 /// GDT entry (8 bytes each, except TSS which is 16 bytes)
@@ -126,8 +127,43 @@ struct GdtDescriptor {
     offset: u64,
 }
 
-// Static GDT and TSS — these live for the entire lifetime of the kernel
-static mut GDT: Gdt = Gdt {
+// IST stacks for critical exceptions (4 KiB each)
+// These are separate stacks used by the IST mechanism to handle double faults
+// and other critical exceptions safely, even if the main kernel stack is corrupted.
+#[repr(C, align(4096))]
+struct IstStack([u8; 4096]);
+
+// ---------------------------------------------------------------------------
+// Safe wrappers around mutable statics
+//
+// These structures are initialised exactly once during `gdt::init()` which
+// runs on the boot CPU before any other CPU (or interrupt) accesses them.
+// After initialisation the GDT/TSS are read-only from the CPU's point of view.
+// We wrap them in `UnsafeCell` + a `Sync` new-type so that we never create
+// multiple `&mut` references, satisfying Rust's aliasing rules.
+// ---------------------------------------------------------------------------
+
+#[repr(transparent)]
+struct StaticCell<T>(UnsafeCell<T>);
+unsafe impl<T> Sync for StaticCell<T> {}
+
+impl<T> StaticCell<T> {
+    const fn new(val: T) -> Self {
+        Self(UnsafeCell::new(val))
+    }
+    /// # Safety
+    /// Caller must guarantee exclusive access (e.g., during init before
+    /// interrupts are enabled, or protected by a higher-level lock).
+    #[allow(clippy::mut_from_ref)]
+    unsafe fn get_mut(&self) -> &mut T {
+        &mut *self.0.get()
+    }
+    fn as_ptr(&self) -> *const T {
+        self.0.get()
+    }
+}
+
+static GDT: StaticCell<Gdt> = StaticCell::new(Gdt {
     entries: [
         GdtEntry::null(),          // 0x00: Null
         GdtEntry::code_segment(0), // 0x08: Kernel Code (Ring 0)
@@ -137,17 +173,11 @@ static mut GDT: Gdt = Gdt {
         GdtEntry::null(),          // 0x28: TSS Low (filled at runtime)
         GdtEntry::null(),          // 0x30: TSS High (filled at runtime)
     ],
-};
+});
 
-static mut TSS: TaskStateSegment = TaskStateSegment::new();
+static TSS: StaticCell<TaskStateSegment> = StaticCell::new(TaskStateSegment::new());
 
-// IST stacks for critical exceptions (4 KiB each)
-// These are separate stacks used by the IST mechanism to handle double faults
-// and other critical exceptions safely, even if the main kernel stack is corrupted.
-#[repr(C, align(4096))]
-struct IstStack([u8; 4096]);
-
-static mut DOUBLE_FAULT_STACK: IstStack = IstStack([0; 4096]);
+static DOUBLE_FAULT_STACK: StaticCell<IstStack> = StaticCell::new(IstStack([0; 4096]));
 
 /// Segment selectors (byte offsets into the GDT)
 pub const KERNEL_CODE_SELECTOR: u16 = 0x08;
@@ -161,17 +191,21 @@ pub const TSS_SELECTOR: u16 = 0x28;
 /// This must be called early in kernel initialization, before setting up the IDT.
 pub fn init() {
     unsafe {
+        let tss = TSS.get_mut();
+        let gdt = GDT.get_mut();
+
         // Set up TSS stack pointers
         // RSP0: kernel stack used when transitioning from user mode
         // IST1: dedicated stack for double fault handler
-        TSS.ist[0] = (&DOUBLE_FAULT_STACK as *const _ as u64) + 4096; // Stack grows down
+        let df_stack_top = DOUBLE_FAULT_STACK.as_ptr() as u64 + 4096; // Stack grows down
+        tss.ist[0] = df_stack_top;
 
         // Create the TSS descriptor (16 bytes, spans two GDT entries)
-        let tss_addr = &TSS as *const _ as u64;
+        let tss_addr = TSS.as_ptr() as u64;
         let tss_len = (size_of::<TaskStateSegment>() - 1) as u64;
 
         // TSS descriptor low half (GDT entry at 0x28)
-        GDT.entries[5] = GdtEntry {
+        gdt.entries[5] = GdtEntry {
             limit_low: (tss_len & 0xFFFF) as u16,
             base_low: (tss_addr & 0xFFFF) as u16,
             base_mid: ((tss_addr >> 16) & 0xFF) as u8,
@@ -181,7 +215,7 @@ pub fn init() {
         };
 
         // TSS descriptor high half (GDT entry at 0x30 — upper 32 bits of base address)
-        GDT.entries[6] = GdtEntry {
+        gdt.entries[6] = GdtEntry {
             limit_low: ((tss_addr >> 32) & 0xFFFF) as u16,
             base_low: ((tss_addr >> 48) & 0xFFFF) as u16,
             base_mid: 0,
@@ -193,7 +227,7 @@ pub fn init() {
         // Load the GDT
         let gdt_descriptor = GdtDescriptor {
             size: (size_of::<Gdt>() - 1) as u16,
-            offset: &GDT as *const _ as u64,
+            offset: GDT.as_ptr() as u64,
         };
 
         core::arch::asm!(

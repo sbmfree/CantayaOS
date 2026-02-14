@@ -64,6 +64,8 @@ pub mod logging;   // Kernel logging infrastructure
 pub mod storage;   // Storage subsystem — filesystem, block devices
 pub mod net;       // Network subsystem — Ethernet, ARP, IPv4, ICMP, UDP
 pub mod shell;     // Interactive kernel shell
+pub mod error;     // Unified kernel error types
+pub mod testing;   // Test harness for kernel unit tests
 
 use cantaya_shared::boot_info::BootInfo;
 use core::panic::PanicInfo;

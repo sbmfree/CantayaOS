@@ -19,7 +19,7 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Push-Location $ProjectRoot
 
-$BuildMode = if ($Release) { "--release" } else { "" }
+$BuildMode = if ($Release) { @("--release") } else { @() }
 $TargetDir = if ($Release) { "release" } else { "debug" }
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -35,13 +35,13 @@ Write-Host "  OK" -ForegroundColor Green
 
 # Step 2: Build the bootloader (UEFI target)
 Write-Host "[2/4] Building bootloader (x86_64-unknown-uefi)..." -ForegroundColor Yellow
-cargo build -p cantaya_bootloader --target x86_64-unknown-uefi $BuildMode
+cargo build -p cantaya_bootloader --target x86_64-unknown-uefi @BuildMode
 if ($LASTEXITCODE -ne 0) { throw "Bootloader build failed" }
 Write-Host "  OK" -ForegroundColor Green
 
 # Step 3: Build the kernel (custom bare-metal target)
 Write-Host "[3/4] Building kernel (x86_64-unknown-none)..." -ForegroundColor Yellow
-cargo build -p cantaya_kernel --target x86_64-unknown-none "-Zbuild-std=core,alloc,compiler_builtins" "-Zbuild-std-features=compiler-builtins-mem" $BuildMode
+cargo build -p cantaya_kernel --target x86_64-unknown-none "-Zbuild-std=core,alloc,compiler_builtins" "-Zbuild-std-features=compiler-builtins-mem" @BuildMode
 if ($LASTEXITCODE -ne 0) { throw "Kernel build failed" }
 Write-Host "  OK" -ForegroundColor Green
 
